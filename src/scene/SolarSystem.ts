@@ -1,7 +1,6 @@
 import * as THREE from 'three'
 import { BODIES, type BodyDef } from '../config/bodies'
 import { kmToAu, DEG2RAD } from '../config/constants'
-import { relativePosition } from './FloatingOrigin'
 import type { ScaleMapping } from './scaleMapping'
 import type { Vec3 } from '../math/vec3'
 
@@ -28,7 +27,12 @@ export class SolarSystem {
   readonly sunLight: THREE.PointLight
   private highlighted: string | null = null
 
-  constructor(loader: THREE.TextureLoader, maxAnisotropy = 8) {
+  constructor(
+    loader: THREE.TextureLoader,
+    private readonly trueScale: ScaleMapping,
+    private readonly visualScale: ScaleMapping,
+    maxAnisotropy = 8,
+  ) {
     for (const def of BODIES) {
       const group = new THREE.Group()
       group.rotation.z = def.axialTiltDeg * DEG2RAD
@@ -102,22 +106,47 @@ export class SolarSystem {
     return ring
   }
 
-  /** Set render sizes from the scale mapping (call when scale mode changes). */
-  applyScale(scale: ScaleMapping): void {
-    for (const view of this.views) {
-      view.mesh.scale.setScalar(scale.radius(kmToAu(view.def.radiusKm)))
-    }
+  /** Blended render radius (AU→units) of a body at scale blend (0=true, 1=visual). */
+  renderRadius(def: BodyDef, blend: number): number {
+    const auR = kmToAu(def.radiusKm)
+    const tr = this.trueScale.radius(auR)
+    return blend <= 0 ? tr : tr + (this.visualScale.radius(auR) - tr) * blend
   }
 
-  /** Reposition every body relative to the floating origin (positions in AU). */
-  place(positions: Record<string, Vec3>, focusAu: Vec3, scale: ScaleMapping): void {
-    const sun = scale.position(relativePosition(positions['sun'], focusAu))
-    this.sunLight.position.set(sun.x, sun.y, sun.z)
+  /**
+   * Reposition and resize every body for the floating origin and scale blend.
+   * blend 0 = true scale (linear, focus-relative); blend 1 = visual ("poster").
+   * Visual positions are centred on the same glide point so the focused body
+   * stays at the origin through a scale transition. Moons collapse onto their
+   * planet in visual mode (the overview hides them; true scale shows them).
+   */
+  place(positions: Record<string, Vec3>, focusAu: Vec3, blend: number): void {
+    const vf = blend > 0 ? this.visualScale.position(focusAu) : null
 
     for (const view of this.views) {
-      const r = scale.position(relativePosition(positions[view.def.id], focusAu))
-      view.group.position.set(r.x, r.y, r.z)
+      const p = positions[view.def.id]
+      const tx = p.x - focusAu.x
+      const ty = p.y - focusAu.y
+      const tz = p.z - focusAu.z
+
+      if (vf) {
+        const v = this.visualScale.position(p)
+        const k = blend
+        view.group.position.set(
+          tx + (v.x - vf.x - tx) * k,
+          ty + (v.y - vf.y - ty) * k,
+          tz + (v.z - vf.z - tz) * k,
+        )
+      } else {
+        view.group.position.set(tx, ty, tz)
+      }
+
+      const r = this.renderRadius(view.def, blend)
+      view.mesh.scale.setScalar(r)
+      if (view.ring) view.ring.scale.setScalar(r / this.trueScale.radius(kmToAu(view.def.radiusKm)))
     }
+
+    this.sunLight.position.copy(this.byId['sun'].group.position)
   }
 
   /** Highlight a body (hover/selection) with a faint emissive boost. */

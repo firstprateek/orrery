@@ -8,9 +8,9 @@ shared night sky.
 > Direction chosen: **pragmatic core first** (ship a polished MVP in weeks,
 > then layer cinematic polish and/or scientific breadth as v2).
 >
-> **Progress:** M0 (scale spike), M1 (real bodies), and M2 (click-to-fly camera:
-> smooth fly-to, picking, hover, labels, `?obj=` deep-links) are implemented and
-> verified — see `src/`.
+> **Progress:** M0 (scale spike), M1 (real bodies), M2 (click-to-fly camera), and
+> M3 (time controls + realistic↔visual scale toggle) are implemented and verified
+> — see `src/`.
 
 ---
 
@@ -202,14 +202,15 @@ Prove the precision stack works end-to-end on a throwaway scene.
   independent); ray-sphere picking unit-tested; verified in-browser (deep-link to a
   lit Jupiter, decluttered labels, click-pick without error).
 
-### M3 — UI overlay + time + scale toggle (Weeks 4–5, overlaps M2)
-- [ ] `InfoPanel` (DOM): name, type, radius, distance, orbital period, fun facts.
-- [ ] `Search` type-ahead over the body registry.
-- [ ] `Timeline`: play/pause, speed multiplier (Julian-days-per-second), "now".
-- [ ] `ScaleToggle`: animate between true-scale and visual modes.
-- [ ] `urlState`: read/write `?obj=` & `?date=`; restore on load.
-- **Acceptance:** all UI is real DOM (keyboard reachable); deep-link round-trips;
-  scale toggle animates without depth-fighting or focus jumps.
+### M3 — UI overlay + time + scale toggle (Weeks 4–5) ✅ done
+- [x] Fact panel (DOM) on the focused body (info panel; `Search` type-ahead deferred — the picker dropdown covers selection).
+- [x] `TimeBar`: play/pause, speed ladder (Julian-days/sec), "now", date readout, scrubber. SimClock advances jd; ephemeris is absolute-time so fast/scrub jumps stay correct.
+- [x] Scale toggle: `makeVisualScale` (log-radial + log-size) + animated blend (smoothDamp) between true and visual; per-frame near/far + camera-distance rescale so the focused body stays framed (no depth-fighting/jump). Moons collapse onto their planet in visual mode (overview hides them).
+- [x] `urlState`: `?obj=` & `?date=` read on load, debounced replaceState (date only when paused).
+- **Acceptance met:** all UI is real DOM (keyboard reachable, ARIA labels);
+  deep-link round-trips; verified in-browser (true Earth ↔ visual "poster" of the
+  whole system with Saturn's rings, 20 draw calls). Fixed: focus now LOCKS onto a
+  moving body during playback (was drifting off-frame) — covered by a new test.
 
 ### M4 — Sky, Sun bloom, asteroid belt, textures (Weeks 5–6)
 - [ ] `Sky`: shared J2000 sky sphere from SVS Deep Star Map. **Verify orientation**
