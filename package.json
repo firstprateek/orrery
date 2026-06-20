@@ -13,6 +13,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "camera-controls": "^3.1.2",
     "three": "^0.184.0"
   },
   "devDependencies": {

@@ -7,10 +7,10 @@ physically-correct shared night sky.
 
 [![CI](https://github.com/firstprateek/orrery/actions/workflows/ci.yml/badge.svg)](https://github.com/firstprateek/orrery/actions/workflows/ci.yml)
 
-> **Status:** foundation / pre-M0. Build tooling, the Kepler core, and CI are in
-> place. The first feature milestone is the **scale spike** (jitter-free
-> Sun → Neptune → 1 km-asteroid zoom). See [PLAN.md](PLAN.md) for the full
-> roadmap.
+> **Status:** M0 (the scale spike) done — a jitter-free Sun → Neptune → 1 km
+> zoom across ~10 orders of magnitude, on the float64-sim + floating-origin +
+> log-depth stack. Next up is M1 (real ephemeris + bodies). See [PLAN.md](PLAN.md)
+> for the full roadmap.
 
 ## Why one shared sky
 
