@@ -8,7 +8,8 @@ shared night sky.
 > Direction chosen: **pragmatic core first** (ship a polished MVP in weeks,
 > then layer cinematic polish and/or scientific breadth as v2).
 >
-> **Progress:** M0 (the scale spike) is implemented and verified — see `src/`.
+> **Progress:** M0 (scale spike) and M1 (real bodies: data, ephemeris, textures,
+> Saturn rings, Sun lighting, shared sky) are implemented and verified — see `src/`.
 
 ---
 
@@ -175,18 +176,18 @@ Prove the precision stack works end-to-end on a throwaway scene.
   correctly. Verified in-browser. (60fps desktop confirmed; real-iPhone check is a
   follow-up before relying on it for the MVP.)
 
-### M1 — Bodies & ephemeris (Weeks 2–3)
-- [ ] `config/bodies.ts` registry for Sun + 8 planets + Pluto + 13 moons (§6).
-- [ ] `sim/ephemeris.ts`: astronomy-engine wrappers (planets, Pluto, Moon, Galileans).
-- [ ] `sim/kepler.ts`: 2-body propagator (Kepler-equation solver) for the other moons.
-- [ ] `scripts/bake-moons.ts`: pull osculating elements for Phobos/Deimos, Titan/
-      Rhea/Iapetus, Titania/Oberon, Triton from Horizons (parent-centered, ecliptic
-      J2000) → `data/moons.json`. Validate a sample against Horizons VECTORS.
-- [ ] `Planet`/`Moon`/`Sun` meshes with placeholder textures; correct relative sizes.
-- [ ] Saturn ring plane (alpha-mapped).
-- **Acceptance:** all bodies at plausible "now" positions; moons orbit correct
-  parents; Triton retrograde; spot-check a planet sits in the right ecliptic
-  longitude vs. a reference (e.g. theskylive).
+### M1 — Bodies & ephemeris (Weeks 2–3) ✅ done
+- [x] `config/bodies.ts` registry for Sun + 8 planets + Pluto + 13 moons (verified data).
+- [x] `sim/ephemeris.ts`: astronomy-engine wrappers (planets, Pluto, Moon, Galileans), all rotated into one ecliptic-J2000 frame.
+- [x] `sim/kepler.ts`: 2-body propagator for the other moons (elements embedded in the registry, parent-centred ecliptic J2000).
+- [x] Shared-geometry body meshes with real CC BY 4.0 textures; correct relative sizes; axial tilt + visual spin.
+- [x] Saturn ring plane (alpha-mapped, radial-strip UV).
+- [x] Sun lighting + faint ambient; shared Milky-Way sky; body picker + fact panel.
+- **Acceptance met:** ephemeris tests confirm planets at correct heliocentric AU
+  and moons at correct parent distances; Triton retrograde; verified in-browser
+  (Earth, Saturn render correctly with textures, lighting, rings, ~5 draw calls).
+  (Per-moon textures beyond Earth's Moon and Horizons-baked element refresh are
+  follow-ups; embedded mean elements are accurate to visualization grade.)
 
 ### M2 — Camera, picking, focus UX (Week 4)
 - [ ] Click-to-select via `Picker` (bounding-volume-first raycast).

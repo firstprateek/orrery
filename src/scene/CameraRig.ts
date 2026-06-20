@@ -21,17 +21,20 @@ export class CameraRig {
     this.controls.smoothTime = 0.2
     this.controls.draggingSmoothTime = 0.08
     this.controls.setTarget(0, 0, 0, false)
+    // A tilted 3/4 view of the ecliptic rather than a flat edge-on or top-down one.
+    void this.controls.rotateTo(0.7, 1.1, false)
   }
 
   /** Frame a body of the given render radius, sitting a few radii away. */
-  frame(renderRadius: number): void {
-    this.controls.minDistance = renderRadius * 1.05
-    this.controls.maxDistance = 200
-    this.camera.near = Math.max(renderRadius * 1e-3, 1e-10)
+  frame(renderRadius: number, kind: 'sun' | 'planet' | 'moon' | 'small' = 'planet', transition = true): void {
+    const mult = { sun: 6, planet: 3.5, moon: 4, small: 8 }[kind]
+    this.controls.minDistance = renderRadius * 1.02
+    this.controls.maxDistance = 5000 // pull back far enough to see the whole system
+    this.camera.near = Math.max(renderRadius * 1e-3, 1e-9)
     this.camera.far = 1e4
     this.camera.updateProjectionMatrix()
     this.controls.setTarget(0, 0, 0, false)
-    void this.controls.dollyTo(renderRadius * 4, true)
+    void this.controls.dollyTo(renderRadius * mult, transition)
   }
 
   resize(aspect: number): void {
