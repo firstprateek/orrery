@@ -8,8 +8,9 @@ shared night sky.
 > Direction chosen: **pragmatic core first** (ship a polished MVP in weeks,
 > then layer cinematic polish and/or scientific breadth as v2).
 >
-> **Progress:** M0 (scale spike) and M1 (real bodies: data, ephemeris, textures,
-> Saturn rings, Sun lighting, shared sky) are implemented and verified — see `src/`.
+> **Progress:** M0 (scale spike), M1 (real bodies), and M2 (click-to-fly camera:
+> smooth fly-to, picking, hover, labels, `?obj=` deep-links) are implemented and
+> verified — see `src/`.
 
 ---
 
@@ -189,14 +190,17 @@ Prove the precision stack works end-to-end on a throwaway scene.
   (Per-moon textures beyond Earth's Moon and Horizons-baked element refresh are
   follow-ups; embedded mean elements are accurate to visualization grade.)
 
-### M2 — Camera, picking, focus UX (Week 4)
-- [ ] Click-to-select via `Picker` (bounding-volume-first raycast).
-- [ ] Focus transition: tween camera target to the body + **rebase floating origin**
-      + retighten near/far.
-- [ ] Per-body min/max zoom clamps (don't let the camera enter a planet).
-- [ ] Screen-space `LabelLayer` (CSS2D), labels stay readable at all zooms.
-- **Acceptance:** smooth, jitter-free focus changes between any two bodies;
-  labels legible; no camera clipping into surfaces.
+### M2 — Camera, picking, focus UX (Week 4) ✅ done
+- [x] Click-to-select via `Picker` (ray-vs-bounding-sphere, screen-space pick floor).
+- [x] Smooth fly-to: `FocusController` glides the floating origin in AU with a
+      critically-damped spring (no jump), camera-controls frames the sunlit side.
+- [x] Per-body min/max zoom clamps + per-focus near/far (no clipping into surfaces).
+- [x] Custom projected-DOM labels (translate3d, not CSS2D) with priority/angular-size/
+      collision declutter; hover highlight.
+- [x] `?obj=<id>` deep-link (instant framing on load, debounced replaceState).
+- **Acceptance met:** spring math unit-tested (monotonic, no overshoot, frame-rate
+  independent); ray-sphere picking unit-tested; verified in-browser (deep-link to a
+  lit Jupiter, decluttered labels, click-pick without error).
 
 ### M3 — UI overlay + time + scale toggle (Weeks 4–5, overlaps M2)
 - [ ] `InfoPanel` (DOM): name, type, radius, distance, orbital period, fun facts.

@@ -18,23 +18,28 @@ export class CameraRig {
     this.camera = new THREE.PerspectiveCamera(45, aspect, 1e-7, 1e4)
     this.controls = new CameraControls(this.camera, domElement)
     this.controls.dollySpeed = 0.6
-    this.controls.smoothTime = 0.2
+    this.controls.smoothTime = 0.4 // matches the focus-glide so fly-to finishes together
     this.controls.draggingSmoothTime = 0.08
     this.controls.setTarget(0, 0, 0, false)
     // A tilted 3/4 view of the ecliptic rather than a flat edge-on or top-down one.
     void this.controls.rotateTo(0.7, 1.1, false)
   }
 
-  /** Frame a body of the given render radius, sitting a few radii away. */
-  frame(renderRadius: number, kind: 'sun' | 'planet' | 'moon' | 'small' = 'planet', transition = true): void {
-    const mult = { sun: 6, planet: 3.5, moon: 4, small: 8 }[kind]
+  /** Frame a body, viewing it from `dir` (e.g. the sunlit side) at the focus origin. */
+  frameFrom(
+    renderRadius: number,
+    kind: 'sun' | 'planet' | 'moon' | 'small',
+    dir: { x: number; y: number; z: number },
+    transition = true,
+  ): void {
     this.controls.minDistance = renderRadius * 1.02
-    this.controls.maxDistance = 5000 // pull back far enough to see the whole system
+    this.controls.maxDistance = 5000
     this.camera.near = Math.max(renderRadius * 1e-3, 1e-9)
     this.camera.far = 1e4
     this.camera.updateProjectionMatrix()
-    this.controls.setTarget(0, 0, 0, false)
-    void this.controls.dollyTo(renderRadius * mult, transition)
+    const dist = renderRadius * { sun: 6, planet: 3.5, moon: 4, small: 8 }[kind]
+    const m = Math.hypot(dir.x, dir.y, dir.z) || 1
+    void this.controls.setLookAt((dir.x / m) * dist, (dir.y / m) * dist, (dir.z / m) * dist, 0, 0, 0, transition)
   }
 
   resize(aspect: number): void {
