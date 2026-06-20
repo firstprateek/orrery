@@ -26,6 +26,7 @@ export class SolarSystem {
   readonly views: BodyView[] = []
   readonly byId: Record<string, BodyView> = {}
   readonly sunLight: THREE.PointLight
+  private highlighted: string | null = null
 
   constructor(loader: THREE.TextureLoader, maxAnisotropy = 8) {
     for (const def of BODIES) {
@@ -116,6 +117,22 @@ export class SolarSystem {
     for (const view of this.views) {
       const r = scale.position(relativePosition(positions[view.def.id], focusAu))
       view.group.position.set(r.x, r.y, r.z)
+    }
+  }
+
+  /** Highlight a body (hover/selection) with a faint emissive boost. */
+  setHighlight(id: string | null): void {
+    if (id === this.highlighted) return
+    const clear = (bodyId: string | null) => {
+      if (!bodyId) return
+      const m = this.byId[bodyId].mesh.material as THREE.MeshStandardMaterial
+      if ('emissive' in m) m.emissive.setHex(0x000000)
+    }
+    clear(this.highlighted)
+    this.highlighted = id
+    if (id) {
+      const m = this.byId[id].mesh.material as THREE.MeshStandardMaterial
+      if ('emissive' in m) m.emissive.setHex(0x223044)
     }
   }
 
