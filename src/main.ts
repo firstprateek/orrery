@@ -5,6 +5,7 @@ import { computePositions } from './sim/ephemeris'
 import { SimClock } from './sim/time'
 import { makeTrueScale, makeVisualScale } from './scene/scaleMapping'
 import { createRenderer } from './scene/Renderer'
+import { createComposer } from './scene/Composer'
 import { CameraRig } from './scene/CameraRig'
 import { SolarSystem } from './scene/SolarSystem'
 import { createSky } from './scene/Sky'
@@ -32,6 +33,8 @@ const solar = new SolarSystem(loader, trueScale, visualScale, renderer.capabilit
 scene.add(solar.group)
 const sky = createSky(loader)
 scene.add(sky)
+
+const composer = createComposer(renderer, scene, rig.camera)
 
 const clock = new SimClock()
 const dateParam = readDateParam()
@@ -106,7 +109,7 @@ function updateHud(): void {
   const def = BODY_BY_ID[focus.targetId]
   const distKm = rig.distance * AU_KM
   const dist = distKm > 1e6 ? `${rig.distance.toFixed(3)} AU` : `${distKm.toFixed(distKm < 100 ? 1 : 0)} km`
-  hud.textContent = `focus ${def.name}  ·  cam ${dist}  ·  ${fps.toFixed(0)} fps  ·  ${renderer.info.render.calls} draws`
+  hud.textContent = `focus ${def.name}  ·  cam ${dist}  ·  ${fps.toFixed(0)} fps`
   factEl.innerHTML = `<b style="font-size:15px">${def.name}</b><br>${def.facts}`
 }
 
@@ -138,6 +141,7 @@ window.addEventListener('keydown', (e) => {
 
 window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight)
+  composer.setSize(window.innerWidth, window.innerHeight)
   rig.resize(window.innerWidth / window.innerHeight)
 })
 
@@ -247,7 +251,7 @@ function tick(dtOverride?: number): void {
     timeBar.refresh()
   }
 
-  renderer.render(scene, rig.camera)
+  composer.render()
 }
 
 renderer.setAnimationLoop(tick)
@@ -268,7 +272,7 @@ if (import.meta.env.DEV) {
     dollyTo: (d: number) => void rig.controls.dollyTo(d, false),
     renderNow: () => {
       rig.update(0.1)
-      renderer.render(scene, rig.camera)
+      composer.render()
     },
     get blend() {
       return blend
