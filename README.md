@@ -18,13 +18,12 @@ travel the solar system's full scale range (whole system down to a 1 km object)
 with no jitter, which is the foundation the real bodies, textures, and sky get
 built on next.
 
-> **Status:** M3 done — it's alive and explorable. **Time controls** (play/pause,
-> speed up to 1 year/s, "now", a date scrubber) move the planets along their real
-> orbits, and a **realistic ↔ visual scale toggle** animates between true scale and
-> a "poster" overview where the whole system is visible at once. On top of M2's
-> click-to-fly camera and M1's real Sun + 8 planets + Pluto + 13 moons with
-> textures, ephemeris, rings, and the shared Milky-Way sky. Next: M4 (bloom,
-> atmospheres, ring shadows, asteroid belt). See [PLAN.md](PLAN.md).
+> **Status:** M4 (awe pass, part 1) done — a glowing **HDR Sun** (selective bloom
+> through a tone-mapped post pipeline) and an **instanced asteroid belt** (2,500
+> rocks between Mars and Jupiter). On top of M3's time controls + scale toggle,
+> M2's click-to-fly camera, and M1's real Sun + 8 planets + Pluto + 13 moons with
+> textures, ephemeris, rings, and the shared Milky-Way sky. Next: atmospheres,
+> Saturn ring shadows, and an accurate star overlay. See [PLAN.md](PLAN.md).
 
 ## Why one shared sky
 

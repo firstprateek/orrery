@@ -8,9 +8,10 @@ shared night sky.
 > Direction chosen: **pragmatic core first** (ship a polished MVP in weeks,
 > then layer cinematic polish and/or scientific breadth as v2).
 >
-> **Progress:** M0 (scale spike), M1 (real bodies), M2 (click-to-fly camera), and
-> M3 (time controls + realistic↔visual scale toggle) are implemented and verified
-> — see `src/`.
+> **Progress:** M0 (scale spike), M1 (real bodies), M2 (click-to-fly camera), M3
+> (time controls + scale toggle), and M4-part-1 (HDR Sun bloom + instanced
+> asteroid belt) are implemented and verified — see `src/`. Remaining M4
+> (atmospheres, ring shadows, accurate star overlay) is the next pass.
 
 ---
 
@@ -212,7 +213,14 @@ Prove the precision stack works end-to-end on a throwaway scene.
   whole system with Saturn's rings, 20 draw calls). Fixed: focus now LOCKS onto a
   moving body during playback (was drifting off-frame) — covered by a new test.
 
-### M4 — Sky, Sun bloom, asteroid belt, textures (Weeks 5–6)
+### M4 — Sky, Sun bloom, asteroid belt, textures (Weeks 5–6) 🟡 in progress
+Part 1 ✅: HDR Sun bloom (`scene/Composer.ts` — EffectComposer with a multisampled
+HalfFloat target → RenderPass → UnrealBloomPass selective on the HDR Sun →
+OutputPass for ACES + sRGB; renderer antialias off, AA via MSAA target) and the
+instanced asteroid belt (`math/belt.ts` seeded distribution + one InstancedMesh,
+true-scale floating-origin offset, hidden in the visual overview). Remaining:
+atmospheres (log-depth-aware shells), Saturn ring shadows, accurate star Points
+overlay, adaptive-quality ladder. Original task list:
 - [ ] `Sky`: shared J2000 sky sphere from SVS Deep Star Map. **Verify orientation**
       (Milky Way must land at its ~62.9° tilt automatically — do not tilt manually;
       confirm the asset is equatorial J2000, correct longitude origin, no axis flip).

@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { BODIES, type BodyDef } from '../config/bodies'
 import { kmToAu, DEG2RAD } from '../config/constants'
+import { makeBelt } from '../math/belt'
 import type { ScaleMapping } from './scaleMapping'
 import type { Vec3 } from '../math/vec3'
 
@@ -25,6 +26,7 @@ export class SolarSystem {
   readonly views: BodyView[] = []
   readonly byId: Record<string, BodyView> = {}
   readonly sunLight: THREE.PointLight
+  readonly belt: THREE.InstancedMesh
   private highlighted: string | null = null
 
   constructor(
@@ -56,13 +58,44 @@ export class SolarSystem {
     this.sunLight = new THREE.PointLight(0xfff4ea, 2.6, 0, 0)
     this.group.add(this.sunLight)
     this.group.add(new THREE.AmbientLight(0xffffff, 0.04))
+
+    this.belt = this.buildBelt()
+    this.group.add(this.belt)
+  }
+
+  private buildBelt(): THREE.InstancedMesh {
+    const instances = makeBelt()
+    const geo = new THREE.IcosahedronGeometry(1, 0)
+    const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, metalness: 0, flatShading: true })
+    const mesh = new THREE.InstancedMesh(geo, mat, instances.length)
+    const m = new THREE.Matrix4()
+    const p = new THREE.Vector3()
+    const q = new THREE.Quaternion()
+    const e = new THREE.Euler()
+    const s = new THREE.Vector3()
+    const c = new THREE.Color()
+    instances.forEach((it, i) => {
+      p.set(it.x, it.y, it.z)
+      e.set(it.rotX, it.rotY, 0)
+      q.setFromEuler(e)
+      s.setScalar(it.scale)
+      m.compose(p, q, s)
+      mesh.setMatrixAt(i, m)
+      c.setRGB(it.tint * 0.55, it.tint * 0.5, it.tint * 0.44)
+      mesh.setColorAt(i, c)
+    })
+    mesh.instanceMatrix.needsUpdate = true
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
+    mesh.frustumCulled = false
+    return mesh
   }
 
   private makeMaterial(def: BodyDef, loader: THREE.TextureLoader, maxAnisotropy: number): THREE.Material {
     const map = def.texture ? this.loadTexture(def.texture, loader, maxAnisotropy) : null
     if (def.type === 'star') {
-      // Sun is unlit/bright (HDR bloom comes in M4).
-      return new THREE.MeshBasicMaterial({ map: map ?? undefined, color: map ? 0xffffff : def.color, toneMapped: false })
+      // Unlit + HDR-boosted (>1) so the bloom pass picks it up as a glowing Sun.
+      const hdr = new THREE.Color(2.6, 2.45, 2.2)
+      return new THREE.MeshBasicMaterial({ map: map ?? undefined, color: map ? hdr : new THREE.Color(def.color), toneMapped: true })
     }
     return new THREE.MeshStandardMaterial({
       map: map ?? undefined,
@@ -147,6 +180,11 @@ export class SolarSystem {
     }
 
     this.sunLight.position.copy(this.byId['sun'].group.position)
+
+    // Belt rocks are at true heliocentric AU; offset by -focus for the floating
+    // origin (true scale only — hidden in the compressed visual overview).
+    this.belt.visible = blend < 0.5
+    this.belt.position.set(-focusAu.x, -focusAu.y, -focusAu.z)
   }
 
   /** Highlight a body (hover/selection) with a faint emissive boost. */
@@ -170,5 +208,6 @@ export class SolarSystem {
     for (const view of this.views) {
       view.mesh.rotation.y += (SPIN_VIS / view.def.rotationPeriodHours) * dtSeconds
     }
+    this.belt.rotateZ(0.015 * dtSeconds) // gentle revolution about the Sun
   }
 }
