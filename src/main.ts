@@ -9,6 +9,7 @@ import { createComposer } from './scene/Composer'
 import { CameraRig } from './scene/CameraRig'
 import { SolarSystem } from './scene/SolarSystem'
 import { createSky } from './scene/Sky'
+import { createStarField } from './scene/StarField'
 import { FocusController } from './scene/FocusController'
 import { pickBody } from './scene/Picker'
 import { smoothDamp } from './math/smoothDamp'
@@ -33,6 +34,12 @@ const solar = new SolarSystem(loader, trueScale, visualScale, renderer.capabilit
 scene.add(solar.group)
 const sky = createSky(loader)
 scene.add(sky)
+
+let starField: THREE.Points | null = null
+createStarField(import.meta.env.BASE_URL).then((sf) => {
+  starField = sf
+  scene.add(sf)
+})
 
 const composer = createComposer(renderer, scene, rig.camera)
 
@@ -237,6 +244,7 @@ function tick(dtOverride?: number): void {
 
   rig.update(dt)
   sky.position.copy(rig.camera.position)
+  if (starField) starField.position.copy(rig.camera.position)
 
   if (frame % 2 === 0) {
     labels.update(solar, rig.camera, window.innerWidth, window.innerHeight, focus.targetId, hoveredId)

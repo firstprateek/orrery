@@ -9,10 +9,10 @@ shared night sky.
 > then layer cinematic polish and/or scientific breadth as v2).
 >
 > **Progress:** M0 (scale spike), M1 (real bodies), M2 (click-to-fly camera), M3
-> (time controls + scale toggle), and M4 parts 1–2 (HDR Sun bloom + instanced
-> asteroid belt + planetary atmospheres) are implemented and verified — see
-> `src/`. Remaining M4 (Saturn ring shadows, accurate star overlay,
-> adaptive-quality ladder) is the next pass.
+> (time controls + scale toggle), and M4 parts 1–3 (HDR Sun bloom + instanced
+> asteroid belt + planetary atmospheres + accurate star field) are implemented
+> and verified — see `src/`. Remaining M4 (Saturn ring shadows, adaptive-quality
+> ladder) is the next pass.
 
 ---
 
@@ -223,9 +223,12 @@ true-scale floating-origin offset, hidden in the visual overview).
 Part 2 ✅: planetary atmospheres (`scene/Atmosphere.ts` — back-face Fresnel rim
 shell ShaderMaterial with the `<logdepthbuf_*>` chunks added by hand so log-depth
 works on a custom shader; sun-direction term gives terminator twilight; per-body
-tints for Earth/Venus/Mars/Titan + gas-giant limb; scaled with the body, hidden
-nowhere). Remaining: Saturn ring shadows, accurate star Points overlay,
-adaptive-quality ladder. Original task list:
+tints for Earth/Venus/Mars/Titan + gas-giant limb; scaled with the body).
+Part 3 ✅: accurate star field (`scripts/fetch-stars.mjs` bakes the Yale BSC ~9k
+stars to `public/data/stars.bin`; `scene/StarField.ts` builds one THREE.Points
+cloud, blackbody colour from temperature + magnitude sizing, equatorial→ecliptic
+rotation, follows the camera, depthTest off; pure `tempToRgb` + `raDecToVec3` are
+unit-tested). Remaining: Saturn ring shadows, adaptive-quality ladder. Task list:
 - [ ] `Sky`: shared J2000 sky sphere from SVS Deep Star Map. **Verify orientation**
       (Milky Way must land at its ~62.9° tilt automatically — do not tilt manually;
       confirm the asset is equatorial J2000, correct longitude origin, no axis flip).

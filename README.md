@@ -18,12 +18,13 @@ travel the solar system's full scale range (whole system down to a 1 km object)
 with no jitter, which is the foundation the real bodies, textures, and sky get
 built on next.
 
-> **Status:** M4 awe pass in progress — a glowing **HDR Sun** (selective bloom),
-> an **instanced asteroid belt**, and now **planetary atmospheres** (Fresnel rim
-> shells with terminator twilight, on Earth/Venus/Mars/Titan and the gas giants).
+> **Status:** M4 awe pass — a glowing **HDR Sun** (selective bloom), an **instanced
+> asteroid belt**, **planetary atmospheres** (Fresnel rims with terminator
+> twilight), and an **accurate star field** (9,096 real Yale-catalog stars with
+> magnitude sizing and blackbody colours, J2000-oriented over the Milky-Way map).
 > On top of M3's time controls + scale toggle, M2's click-to-fly camera, and M1's
-> real Sun + 8 planets + Pluto + 13 moons. Next: Saturn ring shadows + an accurate
-> star overlay. See [PLAN.md](PLAN.md).
+> real Sun + 8 planets + Pluto + 13 moons. Next: Saturn ring shadows +
+> adaptive-quality ladder. See [PLAN.md](PLAN.md).
 
 ## Why one shared sky
 
