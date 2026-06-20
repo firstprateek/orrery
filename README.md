@@ -18,10 +18,11 @@ travel the solar system's full scale range (whole system down to a 1 km object)
 with no jitter, which is the foundation the real bodies, textures, and sky get
 built on next.
 
-> **Status:** M0 (the scale spike) done — a jitter-free Sun → Neptune → 1 km
-> zoom across ~10 orders of magnitude, on the float64-sim + floating-origin +
-> log-depth stack. Next up is M1 (real ephemeris + bodies). See [PLAN.md](PLAN.md)
-> for the full roadmap.
+> **Status:** M1 done — the real solar system: Sun + 8 planets + Pluto + 13 major
+> moons with accurate sizes, textures (CC BY 4.0), live ephemeris positions
+> (`astronomy-engine` + a Kepler propagator), Saturn's rings, Sun lighting, and
+> the shared Milky-Way sky. Pick a body to fly to it. Next: M2 (click-to-select +
+> smooth fly-to + labels). See [PLAN.md](PLAN.md) for the roadmap.
 
 ## Why one shared sky
 
