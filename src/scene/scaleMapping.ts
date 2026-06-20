@@ -26,3 +26,38 @@ export function makeTrueScale(unitsPerAu = 1): ScaleMapping {
     radius: (r) => r * unitsPerAu,
   }
 }
+
+const AU_KM_LOCAL = 149_597_870.7
+
+export interface VisualScaleOpts {
+  /** Heliocentric distance remap: |r|_render = distK · |r|_AU^distExp. */
+  distK?: number
+  distExp?: number
+  /** Body radius remap: r_render = sizeK · r_km^sizeExp. */
+  sizeK?: number
+  sizeExp?: number
+}
+
+/**
+ * Visual ("poster") mapping: compresses orbital distances and amplifies body
+ * sizes via power laws so the whole system is visible at once and tiny bodies
+ * aren't sub-pixel. Direction is preserved; the Sun stays at the origin. Both
+ * remaps are strictly increasing, so ordering (which planet is farther/bigger)
+ * is never inverted.
+ */
+export function makeVisualScale(opts: VisualScaleOpts = {}): ScaleMapping {
+  const distK = opts.distK ?? 10
+  const distExp = opts.distExp ?? 0.5
+  const sizeK = opts.sizeK ?? 0.05
+  const sizeExp = opts.sizeExp ?? 0.33
+  return {
+    mode: 'visual',
+    position: (p) => {
+      const len = Math.hypot(p.x, p.y, p.z)
+      if (len === 0) return { x: 0, y: 0, z: 0 }
+      const s = (distK * Math.pow(len, distExp)) / len
+      return { x: p.x * s, y: p.y * s, z: p.z * s }
+    },
+    radius: (r) => sizeK * Math.pow(r * AU_KM_LOCAL, sizeExp),
+  }
+}

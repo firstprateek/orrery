@@ -42,6 +42,18 @@ export class CameraRig {
     void this.controls.setLookAt((dir.x / m) * dist, (dir.y / m) * dist, (dir.z / m) * dist, 0, 0, 0, transition)
   }
 
+  /** Update only near/far for a focused body of the given render radius. */
+  setClip(renderRadius: number): void {
+    this.camera.near = Math.max(renderRadius * 1e-3, 1e-9)
+    this.camera.far = 1e4
+    this.camera.updateProjectionMatrix()
+  }
+
+  /** Multiply the current orbit distance (keeps a body framed as it grows/shrinks). */
+  scaleDistance(ratio: number): void {
+    void this.controls.dollyTo(this.distance * ratio, false)
+  }
+
   resize(aspect: number): void {
     this.camera.aspect = aspect
     this.camera.updateProjectionMatrix()

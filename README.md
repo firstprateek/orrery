@@ -18,12 +18,13 @@ travel the solar system's full scale range (whole system down to a 1 km object)
 with no jitter, which is the foundation the real bodies, textures, and sky get
 built on next.
 
-> **Status:** M2 done — fly around it. Click/tap any body or pick it from the menu
-> to **smoothly fly there** (sunlit side framed, origin rebased mid-flight so
-> there's no jitter); hover to highlight; decluttered labels; `?obj=<body>`
-> deep-links. On top of M1's real Sun + 8 planets + Pluto + 13 moons with
-> textures, ephemeris, rings, and the shared Milky-Way sky. Next: M3 (time
-> controls + scale toggle). See [PLAN.md](PLAN.md) for the roadmap.
+> **Status:** M3 done — it's alive and explorable. **Time controls** (play/pause,
+> speed up to 1 year/s, "now", a date scrubber) move the planets along their real
+> orbits, and a **realistic ↔ visual scale toggle** animates between true scale and
+> a "poster" overview where the whole system is visible at once. On top of M2's
+> click-to-fly camera and M1's real Sun + 8 planets + Pluto + 13 moons with
+> textures, ephemeris, rings, and the shared Milky-Way sky. Next: M4 (bloom,
+> atmospheres, ring shadows, asteroid belt). See [PLAN.md](PLAN.md).
 
 ## Why one shared sky
 
