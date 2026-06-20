@@ -7,6 +7,17 @@ physically-correct shared night sky.
 
 [![CI](https://github.com/firstprateek/orrery/actions/workflows/ci.yml/badge.svg)](https://github.com/firstprateek/orrery/actions/workflows/ci.yml)
 
+## Live demo
+
+▶ **https://firstprateek.github.io/orrery/**
+
+Currently this is the **M0 scale spike**: press **1 / 2 / 3** to jump focus
+between the Sun, Neptune (30 AU away), and a 1 km test sphere; **scroll** to zoom,
+**drag** to orbit. It's deliberately minimal — it exists to prove the camera can
+travel the solar system's full scale range (whole system down to a 1 km object)
+with no jitter, which is the foundation the real bodies, textures, and sky get
+built on next.
+
 > **Status:** M0 (the scale spike) done — a jitter-free Sun → Neptune → 1 km
 > zoom across ~10 orders of magnitude, on the float64-sim + floating-origin +
 > log-depth stack. Next up is M1 (real ephemeris + bodies). See [PLAN.md](PLAN.md)
