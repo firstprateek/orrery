@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { BODIES, type BodyDef } from '../config/bodies'
 import { kmToAu, DEG2RAD } from '../config/constants'
 import { makeBelt } from '../math/belt'
+import { ATMOSPHERES, createAtmosphere } from './Atmosphere'
 import type { ScaleMapping } from './scaleMapping'
 import type { Vec3 } from '../math/vec3'
 
@@ -19,6 +20,8 @@ export interface BodyView {
   group: THREE.Group
   mesh: THREE.Mesh
   ring?: THREE.Mesh
+  atmosphere?: THREE.Mesh
+  atmoFactor?: number
 }
 
 export class SolarSystem {
@@ -46,6 +49,12 @@ export class SolarSystem {
       if (def.ringInnerKm && def.ringOuterKm && def.ringTexture) {
         view.ring = this.makeRing(def, loader)
         group.add(view.ring)
+      }
+      const atmo = ATMOSPHERES[def.id]
+      if (atmo) {
+        view.atmosphere = createAtmosphere(atmo)
+        view.atmoFactor = atmo.factor
+        group.add(view.atmosphere)
       }
 
       this.group.add(group)
@@ -177,6 +186,10 @@ export class SolarSystem {
       const r = this.renderRadius(view.def, blend)
       view.mesh.scale.setScalar(r)
       if (view.ring) view.ring.scale.setScalar(r / this.trueScale.radius(kmToAu(view.def.radiusKm)))
+      if (view.atmosphere) {
+        view.atmosphere.scale.setScalar(r * (view.atmoFactor as number))
+        ;(view.atmosphere.material as THREE.ShaderMaterial).uniforms.uSunPos.value.copy(this.byId['sun'].group.position)
+      }
     }
 
     this.sunLight.position.copy(this.byId['sun'].group.position)

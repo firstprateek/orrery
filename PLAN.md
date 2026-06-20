@@ -9,9 +9,10 @@ shared night sky.
 > then layer cinematic polish and/or scientific breadth as v2).
 >
 > **Progress:** M0 (scale spike), M1 (real bodies), M2 (click-to-fly camera), M3
-> (time controls + scale toggle), and M4-part-1 (HDR Sun bloom + instanced
-> asteroid belt) are implemented and verified — see `src/`. Remaining M4
-> (atmospheres, ring shadows, accurate star overlay) is the next pass.
+> (time controls + scale toggle), and M4 parts 1–2 (HDR Sun bloom + instanced
+> asteroid belt + planetary atmospheres) are implemented and verified — see
+> `src/`. Remaining M4 (Saturn ring shadows, accurate star overlay,
+> adaptive-quality ladder) is the next pass.
 
 ---
 
@@ -218,9 +219,13 @@ Part 1 ✅: HDR Sun bloom (`scene/Composer.ts` — EffectComposer with a multisa
 HalfFloat target → RenderPass → UnrealBloomPass selective on the HDR Sun →
 OutputPass for ACES + sRGB; renderer antialias off, AA via MSAA target) and the
 instanced asteroid belt (`math/belt.ts` seeded distribution + one InstancedMesh,
-true-scale floating-origin offset, hidden in the visual overview). Remaining:
-atmospheres (log-depth-aware shells), Saturn ring shadows, accurate star Points
-overlay, adaptive-quality ladder. Original task list:
+true-scale floating-origin offset, hidden in the visual overview).
+Part 2 ✅: planetary atmospheres (`scene/Atmosphere.ts` — back-face Fresnel rim
+shell ShaderMaterial with the `<logdepthbuf_*>` chunks added by hand so log-depth
+works on a custom shader; sun-direction term gives terminator twilight; per-body
+tints for Earth/Venus/Mars/Titan + gas-giant limb; scaled with the body, hidden
+nowhere). Remaining: Saturn ring shadows, accurate star Points overlay,
+adaptive-quality ladder. Original task list:
 - [ ] `Sky`: shared J2000 sky sphere from SVS Deep Star Map. **Verify orientation**
       (Milky Way must land at its ~62.9° tilt automatically — do not tilt manually;
       confirm the asset is equatorial J2000, correct longitude origin, no axis flip).
