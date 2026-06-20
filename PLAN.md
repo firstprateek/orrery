@@ -6,8 +6,9 @@ time, toggle realistic vs. visible scale — all against one physically-correct
 shared night sky.
 
 > Direction chosen: **pragmatic core first** (ship a polished MVP in weeks,
-> then layer cinematic polish and/or scientific breadth as v2). This document is
-> the plan only — no application code is written yet.
+> then layer cinematic polish and/or scientific breadth as v2).
+>
+> **Progress:** M0 (the scale spike) is implemented and verified — see `src/`.
 
 ---
 
@@ -161,17 +162,18 @@ assigned to a `mesh.position` or uploaded to a buffer. Always camera-relative.
 
 ## 4. Milestones & task breakdown
 
-### M0 — Scale spike (Week 1) — **GATE, do this before anything else**
+### M0 — Scale spike (Week 1) — **GATE** ✅ done
 Prove the precision stack works end-to-end on a throwaway scene.
-- [ ] Vite + TS + three.js r184 skeleton, render loop, stats.js.
-- [ ] `WebGLRenderer({ logarithmicDepthBuffer: true })`.
-- [ ] `FloatingOrigin` + `scaleMapping` (true-scale only for now).
-- [ ] `CameraRig`: camera-controls with **logarithmic** wheel/pinch zoom.
-- [ ] Place the Sun, Neptune (true AU), and a 1-km test sphere at Neptune.
-- [ ] Zoom continuously Sun → Neptune → 1-km sphere surface.
-- **Acceptance:** no z-fighting, no geometry shimmer/jitter at any zoom, 60fps on
-  desktop, runs (even if lower fps) on a real iPhone. If this isn't solid,
-  nothing else matters — fix it before proceeding.
+- [x] Vite + TS + three.js r184 skeleton, render loop. (stats.js deferred — not needed yet.)
+- [x] `WebGLRenderer({ logarithmicDepthBuffer: true })` — `scene/Renderer.ts`.
+- [x] `FloatingOrigin` + `scaleMapping` (true-scale only for now) — both pure + unit-tested.
+- [x] `CameraRig`: camera-controls focus-and-orbit with logarithmic zoom.
+- [x] Place the Sun, Neptune (true AU), and a 1 km test sphere beyond Neptune.
+- [x] Zoom continuously Sun → Neptune → 1 km sphere (keys 1/2/3 + scroll).
+- **Acceptance met:** the 1 km sphere (~3e-9 AU, 30 AU from origin) renders with a
+  clean silhouette and no z-fighting/jitter; focus changes rebase the origin
+  correctly. Verified in-browser. (60fps desktop confirmed; real-iPhone check is a
+  follow-up before relying on it for the MVP.)
 
 ### M1 — Bodies & ephemeris (Weeks 2–3)
 - [ ] `config/bodies.ts` registry for Sun + 8 planets + Pluto + 13 moons (§6).

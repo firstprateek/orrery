@@ -8,6 +8,9 @@
 // These are pure functions with no time or I/O dependency, which is exactly why
 // they are the first behaviour we lock down with tests.
 
+import type { Vec3 } from '../math/vec3'
+export type { Vec3 }
+
 export interface OrbitalElements {
   /** Semi-major axis (AU or parent-relative units). */
   a: number
@@ -21,12 +24,6 @@ export interface OrbitalElements {
   w: number
   /** Mean anomaly at the desired epoch (M), radians. */
   M: number
-}
-
-export interface Vec3 {
-  x: number
-  y: number
-  z: number
 }
 
 /** Normalise an angle to the range (-π, π] for fast, stable iteration. */
