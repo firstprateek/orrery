@@ -25,8 +25,16 @@ const renderer = createRenderer()
 renderer.domElement.style.cursor = 'grab'
 app.appendChild(renderer.domElement)
 
-// Quality tier (persisted): drives DPR, bloom resolution, MSAA, belt density.
+// GPU diagnostics — used to warn on (and auto-downgrade for) software rendering.
+const gl0 = renderer.getContext()
+const dbg = gl0.getExtension('WEBGL_debug_renderer_info')
+const gpuName = dbg ? String(gl0.getParameter(dbg.UNMASKED_RENDERER_WEBGL)) : 'unknown GPU'
+const softwareRendering = /swiftshader|llvmpipe|software|basic render|microsoft basic/i.test(gpuName)
+
+// Quality tier (persisted): drives DPR, the post pipeline, bloom resolution,
+// belt density. Software rendering is forced to the lightest tier.
 let quality = QUALITY[resolveTier(localStorage.getItem('orrery-quality'))]
+if (softwareRendering) quality = QUALITY.performance
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, quality.dpr))
 
 const scene = new THREE.Scene()
@@ -47,7 +55,12 @@ createStarField(import.meta.env.BASE_URL).then((sf) => {
   scene.add(sf)
 })
 
-let composer = createComposer(renderer, scene, rig.camera, quality)
+let composer = quality.post ? createComposer(renderer, scene, rig.camera, quality) : null
+
+function draw(): void {
+  if (composer) composer.render()
+  else renderer.render(scene, rig.camera)
+}
 
 const clock = new SimClock()
 const dateParam = readDateParam()
@@ -115,9 +128,14 @@ function applyQuality(tier: QualityTier): void {
   }
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, quality.dpr))
   renderer.setSize(window.innerWidth, window.innerHeight)
-  composer.dispose()
-  composer = createComposer(renderer, scene, rig.camera, quality)
-  composer.setSize(window.innerWidth, window.innerHeight)
+  if (composer) {
+    composer.dispose()
+    composer = null
+  }
+  if (quality.post) {
+    composer = createComposer(renderer, scene, rig.camera, quality)
+    composer.setSize(window.innerWidth, window.innerHeight)
+  }
   solar.belt.count = quality.beltCount
   if (qualitySel.value !== tier) qualitySel.value = tier
 }
@@ -130,10 +148,20 @@ const factEl = document.createElement('div')
 factEl.style.cssText = 'position:fixed;right:14px;bottom:14px;max-width:300px;color:#cdd6ff;font:13px/1.5 system-ui;text-align:right;text-shadow:0 1px 3px #000;pointer-events:none;z-index:10'
 document.body.appendChild(factEl)
 
+if (softwareRendering) {
+  const warn = document.createElement('div')
+  warn.textContent =
+    '⚠ Software rendering detected (no GPU acceleration). Enable hardware acceleration in your browser for smooth performance.'
+  warn.style.cssText =
+    'position:fixed;top:58px;left:14px;max-width:380px;background:#3a1a1a;color:#ffd9d9;border:1px solid #6a2a2a;border-radius:8px;padding:8px 12px;font:12px/1.4 system-ui;z-index:20'
+  document.body.appendChild(warn)
+}
+
 const labels = new Labels(solar)
 
 // --- focus / framing ---
 let fps = 0
+let msEma = 16
 let hoveredId: string | null = null
 
 function kindOf(def: BodyDef): 'sun' | 'planet' | 'moon' | 'small' {
@@ -147,12 +175,16 @@ function syncUrl(): void {
   writeState(focus.targetId, clock.playing ? null : jdToIso())
 }
 
-function updateHud(): void {
+function updateFact(): void {
+  const def = BODY_BY_ID[focus.targetId]
+  factEl.innerHTML = `<b style="font-size:15px">${def.name}</b><br>${def.facts}`
+}
+
+function updateStats(): void {
   const def = BODY_BY_ID[focus.targetId]
   const distKm = rig.distance * AU_KM
-  const dist = distKm > 1e6 ? `${rig.distance.toFixed(3)} AU` : `${distKm.toFixed(distKm < 100 ? 1 : 0)} km`
-  hud.textContent = `focus ${def.name}  ·  cam ${dist}  ·  ${fps.toFixed(0)} fps`
-  factEl.innerHTML = `<b style="font-size:15px">${def.name}</b><br>${def.facts}`
+  const dist = distKm > 1e6 ? `${rig.distance.toFixed(2)} AU` : `${distKm.toFixed(0)} km`
+  hud.textContent = `${def.name} · ${dist} · ${msEma.toFixed(1)} ms (${fps.toFixed(0)} fps) · ${gpuName}`
 }
 
 function flyTo(id: string, instant = false): void {
@@ -168,7 +200,8 @@ function flyTo(id: string, instant = false): void {
   prevFr = r
   if (selectEl.value !== id) selectEl.value = id
   syncUrl()
-  updateHud()
+  updateFact()
+  updateStats()
 }
 
 selectEl.addEventListener('change', () => flyTo(selectEl.value))
@@ -183,7 +216,7 @@ window.addEventListener('keydown', (e) => {
 
 window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight)
-  composer.setSize(window.innerWidth, window.innerHeight)
+  if (composer) composer.setSize(window.innerWidth, window.innerHeight)
   rig.resize(window.innerWidth / window.innerHeight)
 })
 
@@ -233,8 +266,6 @@ flyTo(startId, true)
 
 // --- loop ---
 const timer = new THREE.Timer()
-const fpsSamples = new Float32Array(30)
-let fi = 0
 let frame = 0
 
 function tick(dtOverride?: number): void {
@@ -245,6 +276,7 @@ function tick(dtOverride?: number): void {
     timer.update()
     dt = timer.getDelta()
   }
+  if (dt > 0.1) dt = 0.1 // clamp tab-switch gaps so the clock/springs/stats don't lurch
 
   clock.advance(dt)
   positions = computePositions(clock.jd, positions)
@@ -285,16 +317,12 @@ function tick(dtOverride?: number): void {
     labels.update(solar, rig.camera, window.innerWidth, window.innerHeight, focus.targetId, hoveredId)
   }
 
-  fpsSamples[fi++ % 30] = dt
-  if (++frame % 12 === 0) {
-    let s = 0
-    for (let i = 0; i < 30; i++) s += fpsSamples[i]
-    fps = 30 / (s || 1)
-    updateHud()
-    timeBar.refresh()
-  }
+  msEma += (dt * 1000 - msEma) * 0.1
+  fps = 1000 / msEma
+  updateStats()
+  if (++frame % 12 === 0) timeBar.refresh()
 
-  composer.render()
+  draw()
 }
 
 renderer.setAnimationLoop(tick)
@@ -315,7 +343,46 @@ if (import.meta.env.DEV) {
     dollyTo: (d: number) => void rig.controls.dollyTo(d, false),
     renderNow: () => {
       rig.update(0.1)
-      composer.render()
+      draw()
+    },
+    gpu: gpuName,
+    softwareRendering,
+    // GPU-synced perf probe: readPixels forces the GPU to finish, so timing
+    // captures real GPU cost even in a throttled tab. Toggles each component.
+    perf: (n = 20) => {
+      const gl = renderer.getContext()
+      const px = new Uint8Array(4)
+      const sync = () => gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px)
+      const stars = scene.children.find((c) => c instanceof THREE.Points) as THREE.Points | undefined
+      const measure = (label: string, setup: () => void, restore: () => void) => {
+        setup()
+        draw()
+        sync()
+        const t0 = performance.now()
+        for (let i = 0; i < n; i++) draw()
+        sync()
+        const ms = (performance.now() - t0) / n
+        restore()
+        return { label, ms: +ms.toFixed(2), fps: Math.round(1000 / ms) }
+      }
+      const noop = () => {}
+      const r: unknown[] = []
+      r.push(measure('all', noop, noop))
+      if (composer) {
+        const c = composer
+        r.push(measure('bloom-off', () => (c.bloom.enabled = false), () => (c.bloom.enabled = true)))
+      }
+      r.push(measure('belt-off', () => (solar.belt.visible = false), () => (solar.belt.visible = true)))
+      r.push(measure('sky-off', () => (sky.visible = false), () => (sky.visible = true)))
+      if (stars) r.push(measure('stars-off', () => (stars.visible = false), () => (stars.visible = true)))
+      r.push(measure('bodies-off', () => (solar.group.visible = false), () => (solar.group.visible = true)))
+      return {
+        gpu: gpuName,
+        post: !!composer,
+        dpr: renderer.getPixelRatio(),
+        canvas: [renderer.domElement.width, renderer.domElement.height],
+        results: r,
+      }
     },
     get blend() {
       return blend

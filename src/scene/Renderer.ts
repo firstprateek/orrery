@@ -8,11 +8,13 @@ import * as THREE from 'three'
  * - ACES tone mapping + sRGB output: applied by the bloom composer's OutputPass
  *   at the canvas (rendering to the composer's HalfFloat target stays linear, so
  *   the Sun's HDR emissive survives into bloom).
- * antialias is off here — AA comes from the composer's multisampled target.
+ * antialias is on for the Performance tier's direct-to-canvas path (cheap MSAA on
+ * the default framebuffer — universally supported, unlike multisampled float
+ * targets). The composer tiers render to a non-multisampled float target.
  */
 export function createRenderer(): THREE.WebGLRenderer {
   const renderer = new THREE.WebGLRenderer({
-    antialias: false,
+    antialias: true,
     logarithmicDepthBuffer: true,
     powerPreference: 'high-performance',
     stencil: false,
