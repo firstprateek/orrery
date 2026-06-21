@@ -14,7 +14,7 @@ const SPEEDS = [
   { label: '1 month/s', v: 30 },
   { label: '1 year/s', v: 365 },
 ]
-const DEFAULT_SPEED_INDEX = 3
+const DEFAULT_SPEED_INDEX = 1 // 1 hour/s — gentle: Earth turns once per ~24s, orbits creep
 
 const btnCss =
   'background:#171a26;color:#cdd6ff;border:1px solid #2a2f44;border-radius:8px;padding:6px 10px;font:13px system-ui;cursor:pointer;min-width:34px'
