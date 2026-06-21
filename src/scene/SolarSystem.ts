@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { BODIES, type BodyDef } from '../config/bodies'
 import { kmToAu, DEG2RAD } from '../config/constants'
 import { makeBelt } from '../math/belt'
+import { MAX_BELT } from './quality'
 import { ATMOSPHERES, createAtmosphere } from './Atmosphere'
 import type { ScaleMapping } from './scaleMapping'
 import type { Vec3 } from '../math/vec3'
@@ -73,7 +74,7 @@ export class SolarSystem {
   }
 
   private buildBelt(): THREE.InstancedMesh {
-    const instances = makeBelt()
+    const instances = makeBelt({ count: MAX_BELT })
     const geo = new THREE.IcosahedronGeometry(1, 0)
     const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, metalness: 0, flatShading: true })
     const mesh = new THREE.InstancedMesh(geo, mat, instances.length)
