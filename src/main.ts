@@ -6,6 +6,7 @@ import { SimClock } from './sim/time'
 import { makeTrueScale, makeVisualScale } from './scene/scaleMapping'
 import { createRenderer } from './scene/Renderer'
 import { createComposer } from './scene/Composer'
+import { QUALITY, QUALITY_ORDER, resolveTier, type QualityTier } from './scene/quality'
 import { CameraRig } from './scene/CameraRig'
 import { SolarSystem } from './scene/SolarSystem'
 import { createSky } from './scene/Sky'
@@ -24,6 +25,10 @@ const renderer = createRenderer()
 renderer.domElement.style.cursor = 'grab'
 app.appendChild(renderer.domElement)
 
+// Quality tier (persisted): drives DPR, bloom resolution, MSAA, belt density.
+let quality = QUALITY[resolveTier(localStorage.getItem('orrery-quality'))]
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, quality.dpr))
+
 const scene = new THREE.Scene()
 const rig = new CameraRig(renderer.domElement, window.innerWidth / window.innerHeight)
 const trueScale = makeTrueScale()
@@ -32,6 +37,7 @@ const loader = new THREE.TextureLoader()
 
 const solar = new SolarSystem(loader, trueScale, visualScale, renderer.capabilities.getMaxAnisotropy())
 scene.add(solar.group)
+solar.belt.count = quality.beltCount
 const sky = createSky(loader)
 scene.add(sky)
 
@@ -41,7 +47,7 @@ createStarField(import.meta.env.BASE_URL).then((sf) => {
   scene.add(sf)
 })
 
-const composer = createComposer(renderer, scene, rig.camera)
+let composer = createComposer(renderer, scene, rig.camera, quality)
 
 const clock = new SimClock()
 const dateParam = readDateParam()
@@ -85,7 +91,36 @@ scaleBtn.addEventListener('click', () => {
   scaleBtn.textContent = targetBlend > 0.5 ? 'Scale: visual' : 'Scale: realistic'
 })
 ui.appendChild(scaleBtn)
+
+const qualitySel = document.createElement('select')
+qualitySel.setAttribute('aria-label', 'Graphics quality')
+qualitySel.style.cssText = selectEl.style.cssText
+for (const t of QUALITY_ORDER) {
+  const o = document.createElement('option')
+  o.value = t
+  o.textContent = QUALITY[t].label
+  qualitySel.appendChild(o)
+}
+qualitySel.value = quality.tier
+qualitySel.addEventListener('change', () => applyQuality(qualitySel.value as QualityTier))
+ui.appendChild(qualitySel)
 document.body.appendChild(ui)
+
+function applyQuality(tier: QualityTier): void {
+  quality = QUALITY[tier]
+  try {
+    localStorage.setItem('orrery-quality', tier)
+  } catch {
+    // private mode / storage unavailable — fine, just won't persist
+  }
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, quality.dpr))
+  renderer.setSize(window.innerWidth, window.innerHeight)
+  composer.dispose()
+  composer = createComposer(renderer, scene, rig.camera, quality)
+  composer.setSize(window.innerWidth, window.innerHeight)
+  solar.belt.count = quality.beltCount
+  if (qualitySel.value !== tier) qualitySel.value = tier
+}
 
 const hud = document.createElement('div')
 hud.style.cssText = 'position:fixed;left:14px;bottom:60px;color:#aab3d0;font:12px/1.6 ui-monospace,monospace;text-shadow:0 1px 2px #000;pointer-events:none;z-index:10'
