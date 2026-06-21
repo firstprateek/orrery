@@ -289,7 +289,7 @@ function tick(dtOverride?: number): void {
   }
 
   solar.place(positions, focusAu, blend)
-  solar.spin(dt)
+  solar.rotate(clock.jd)
 
   // Keep the focused body framed as its render radius changes during a scale blend.
   const fr = solar.renderRadius(BODY_BY_ID[focus.targetId], blend)

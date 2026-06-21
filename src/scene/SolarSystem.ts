@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { BODIES, type BodyDef } from '../config/bodies'
 import { kmToAu, DEG2RAD } from '../config/constants'
+import { bodyRotationAngle } from '../math/rotation'
 import { makeBelt } from '../math/belt'
 import { MAX_BELT } from './quality'
 import { ATMOSPHERES, createAtmosphere } from './Atmosphere'
@@ -12,9 +13,9 @@ import type { Vec3 } from '../math/vec3'
 const SHARED_SPHERE = new THREE.SphereGeometry(1, 64, 32)
 const TEXTURE_BASE = `${import.meta.env.BASE_URL}textures/`
 
-// Visual spin factor: makes axial rotation perceptible (Earth ~ one turn / 8s)
-// while preserving real period ratios and retrograde sign.
-const SPIN_VIS = (2 * Math.PI) / 8 * 23.9345
+// Representative asteroid-belt orbital period (days) — the belt revolves slowly
+// with the clock like everything else (it's artistic, not per-rock Keplerian).
+const BELT_PERIOD_DAYS = 1600
 
 export interface BodyView {
   def: BodyDef
@@ -217,11 +218,12 @@ export class SolarSystem {
     }
   }
 
-  /** Spin every body on its axis for visual life (decoupled from sim time in M1). */
-  spin(dtSeconds: number): void {
+  /** Set axial rotation from the sim clock using real sidereal periods (so spin
+   * speed tracks the time controls). The belt revolves slowly with the clock too. */
+  rotate(jd: number): void {
     for (const view of this.views) {
-      view.mesh.rotation.y += (SPIN_VIS / view.def.rotationPeriodHours) * dtSeconds
+      view.mesh.rotation.y = bodyRotationAngle(jd, view.def.rotationPeriodHours)
     }
-    this.belt.rotateZ(0.015 * dtSeconds) // gentle revolution about the Sun
+    this.belt.rotation.z = bodyRotationAngle(jd, BELT_PERIOD_DAYS * 24)
   }
 }
