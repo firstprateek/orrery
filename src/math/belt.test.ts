@@ -27,4 +27,15 @@ describe('makeBelt', () => {
     const b = makeBelt({ count: 5, seed: 2 })
     expect(a[0]).not.toEqual(b[0])
   })
+
+  it('pins the LCG stream to golden values (cross-platform determinism)', () => {
+    // If the constants, seed handling, or draw ORDER change, the whole belt
+    // silently re-shuffles; this pins the first rock of the default stream.
+    const [first] = makeBelt({ count: 1, seed: 1 })
+    expect(first.x).toBeCloseTo(-1.62380686282865, 12)
+    expect(first.y).toBeCloseTo(1.7451358886404023, 12)
+    expect(first.z).toBeCloseTo(0.0007635658141225576, 12)
+    expect(first.scale).toBeCloseTo(0.004671974686556496, 12)
+    expect(first.tint).toBeCloseTo(0.9099051849916577, 12)
+  })
 })

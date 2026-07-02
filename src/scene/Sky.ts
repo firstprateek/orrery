@@ -10,11 +10,13 @@ const SKY_RADIUS = 9000
 export function createSky(loader: THREE.TextureLoader): THREE.Mesh {
   const tex = loader.load(`${import.meta.env.BASE_URL}textures/8k_stars_milky_way.jpg`)
   tex.colorSpace = THREE.SRGBColorSpace
+  // toneMapped must stay true: the composer's OutputPass tone-maps the whole
+  // frame regardless, so opting out here would make the sky brighter on the
+  // direct (Performance) path than on the composer tiers.
   const mat = new THREE.MeshBasicMaterial({
     map: tex,
     side: THREE.BackSide,
     depthWrite: false,
-    toneMapped: false,
   })
   const mesh = new THREE.Mesh(new THREE.SphereGeometry(SKY_RADIUS, 64, 32), mat)
   mesh.renderOrder = -1

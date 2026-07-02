@@ -11,8 +11,9 @@ import { raDecToVec3, OBLIQUITY_J2000 } from '../math/celestial'
 
 const RADIUS = 8500
 
-export async function createStarField(baseUrl: string): Promise<THREE.Points> {
+export async function createStarField(baseUrl: string, pixelRatio: number): Promise<THREE.Points> {
   const res = await fetch(`${baseUrl}data/stars.bin`)
+  if (!res.ok) throw new Error(`stars.bin fetch failed: ${res.status}`)
   const data = new Float32Array(await res.arrayBuffer())
   const n = data.length / 4
 
@@ -45,9 +46,15 @@ export async function createStarField(baseUrl: string): Promise<THREE.Points> {
   geo.setAttribute('aColor', new THREE.BufferAttribute(colors, 3))
   geo.setAttribute('size', new THREE.BufferAttribute(sizes, 1))
 
+  // depthTest MUST be on (with log-depth chunks, since the renderer uses a
+  // logarithmic depth buffer): stars are transparent and therefore drawn AFTER
+  // the opaque planets, so without a real depth test they composite additively
+  // on top of planet discs — stars visibly shining through Saturn.
   const material = new THREE.ShaderMaterial({
-    uniforms: { uPixelRatio: { value: Math.min(window.devicePixelRatio, 1.5) } },
+    uniforms: { uPixelRatio: { value: pixelRatio } },
     vertexShader: `
+      #include <common>
+      #include <logdepthbuf_pars_vertex>
       attribute vec3 aColor;
       attribute float size;
       uniform float uPixelRatio;
@@ -56,19 +63,25 @@ export async function createStarField(baseUrl: string): Promise<THREE.Points> {
         vColor = aColor;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
         gl_PointSize = size * uPixelRatio;
+        #include <logdepthbuf_vertex>
       }
     `,
     fragmentShader: `
+      #include <common>
+      #include <logdepthbuf_pars_fragment>
       varying vec3 vColor;
       void main() {
+        #include <logdepthbuf_fragment>
         float d = length(gl_PointCoord - 0.5);
         float a = smoothstep(0.5, 0.1, d);
         gl_FragColor = vec4(vColor, a);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }
     `,
     transparent: true,
     blending: THREE.AdditiveBlending,
-    depthTest: false,
+    depthTest: true,
     depthWrite: false,
   })
 
