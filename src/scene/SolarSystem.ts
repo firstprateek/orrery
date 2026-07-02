@@ -5,6 +5,7 @@ import { bodyRotationAngle } from '../math/rotation'
 import { makeBelt } from '../math/belt'
 import { MAX_BELT } from './quality'
 import { ATMOSPHERES, createAtmosphere } from './Atmosphere'
+import { createEarthMaterial, createClouds } from './EarthMaterial'
 import type { ScaleMapping } from './scaleMapping'
 import type { Vec3 } from '../math/vec3'
 
@@ -24,6 +25,9 @@ export interface BodyView {
   ring?: THREE.Mesh
   atmosphere?: THREE.Mesh
   atmoFactor?: number
+  clouds?: THREE.Mesh
+  /** World direction from the body toward the Sun (custom-shader bodies). */
+  sunDir?: { value: THREE.Vector3 }
 }
 
 export class SolarSystem {
@@ -49,10 +53,20 @@ export class SolarSystem {
       // pole azimuths are a future refinement).
       group.rotation.x = Math.PI / 2 + def.axialTiltDeg * DEG2RAD
 
-      const mesh = new THREE.Mesh(SHARED_SPHERE, this.makeMaterial(def, loader, maxAnisotropy))
+      let mesh: THREE.Mesh
+      const view: BodyView = { def, group, mesh: undefined as unknown as THREE.Mesh }
+      if (def.id === 'earth') {
+        // Earth gets the cinematic treatment: night-side city lights + clouds.
+        const rig = createEarthMaterial(loader, TEXTURE_BASE, def.color, maxAnisotropy)
+        mesh = new THREE.Mesh(SHARED_SPHERE, rig.material)
+        view.sunDir = rig.uSunDir
+        view.clouds = createClouds(loader, TEXTURE_BASE, SHARED_SPHERE)
+        group.add(view.clouds)
+      } else {
+        mesh = new THREE.Mesh(SHARED_SPHERE, this.makeMaterial(def, loader, maxAnisotropy))
+      }
+      view.mesh = mesh
       group.add(mesh)
-
-      const view: BodyView = { def, group, mesh }
       if (def.ringInnerKm && def.ringOuterKm && def.ringTexture) {
         view.ring = this.makeRing(def, loader)
         group.add(view.ring)
@@ -199,6 +213,11 @@ export class SolarSystem {
         view.atmosphere.scale.setScalar(r * (view.atmoFactor as number))
         ;(view.atmosphere.material as THREE.ShaderMaterial).uniforms.uSunPos.value.copy(this.byId['sun'].group.position)
       }
+      if (view.clouds) view.clouds.scale.setScalar(r * 1.006)
+      if (view.sunDir) {
+        // Sun is BODIES[0], so its group position is already updated this frame.
+        view.sunDir.value.copy(this.byId['sun'].group.position).sub(view.group.position).normalize()
+      }
     }
 
     this.sunLight.position.copy(this.byId['sun'].group.position)
@@ -237,6 +256,8 @@ export class SolarSystem {
   rotate(jd: number): void {
     for (const view of this.views) {
       view.mesh.rotation.y = bodyRotationAngle(jd, view.def.rotationPeriodHours, view.def.meridianDeg)
+      // Clouds drift ~8% slower than the surface so weather visibly moves.
+      if (view.clouds) view.clouds.rotation.y = bodyRotationAngle(jd, view.def.rotationPeriodHours * 1.08)
     }
     this.belt.rotation.z = bodyRotationAngle(jd, BELT_PERIOD_DAYS * 24)
   }
