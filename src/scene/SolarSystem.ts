@@ -42,7 +42,12 @@ export class SolarSystem {
   ) {
     for (const def of BODIES) {
       const group = new THREE.Group()
-      group.rotation.z = def.axialTiltDeg * DEG2RAD
+      // World frame is ecliptic-J2000 with Z = ecliptic north; the sphere's spin
+      // pole is local +Y. Rx(π/2) stands the pole up to world +Z, and adding the
+      // obliquity tilts it away from ecliptic north by the correct angle (the
+      // in-plane azimuth of the tilt is a shared approximation; per-body IAU
+      // pole azimuths are a future refinement).
+      group.rotation.x = Math.PI / 2 + def.axialTiltDeg * DEG2RAD
 
       const mesh = new THREE.Mesh(SHARED_SPHERE, this.makeMaterial(def, loader, maxAnisotropy))
       group.add(mesh)
@@ -222,7 +227,7 @@ export class SolarSystem {
    * speed tracks the time controls). The belt revolves slowly with the clock too. */
   rotate(jd: number): void {
     for (const view of this.views) {
-      view.mesh.rotation.y = bodyRotationAngle(jd, view.def.rotationPeriodHours)
+      view.mesh.rotation.y = bodyRotationAngle(jd, view.def.rotationPeriodHours, view.def.meridianDeg)
     }
     this.belt.rotation.z = bodyRotationAngle(jd, BELT_PERIOD_DAYS * 24)
   }

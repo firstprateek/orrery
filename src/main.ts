@@ -32,8 +32,16 @@ const gpuName = dbg ? String(gl0.getParameter(dbg.UNMASKED_RENDERER_WEBGL)) : 'u
 const softwareRendering = /swiftshader|llvmpipe|software|basic render|microsoft basic/i.test(gpuName)
 
 // Quality tier (persisted): drives DPR, the post pipeline, bloom resolution,
-// belt density. Software rendering is forced to the lightest tier.
-let quality = QUALITY[resolveTier(localStorage.getItem('orrery-quality'))]
+// belt density. Software rendering is forced to the lightest tier. Storage can
+// throw (blocked cookies/private mode) — never let that kill the app.
+function readStoredQuality(): string | null {
+  try {
+    return localStorage.getItem('orrery-quality')
+  } catch {
+    return null
+  }
+}
+let quality = QUALITY[resolveTier(readStoredQuality())]
 if (softwareRendering) quality = QUALITY.performance
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, quality.dpr))
 
@@ -63,12 +71,19 @@ function draw(): void {
 }
 
 const clock = new SimClock()
+// A shared ?date= link opens PAUSED at that exact moment (otherwise playback +
+// the URL sync would drift and drop the date within seconds). Strict ISO parse
+// so every engine reads the same instant. No date → gentle motion on load.
 const dateParam = readDateParam()
-if (dateParam) {
+let dateLinked = false
+if (dateParam && /^\d{4}-\d{2}-\d{2}(T[\d:.]+Z?)?$/.test(dateParam)) {
   const ms = Date.parse(dateParam)
-  if (!Number.isNaN(ms)) clock.jd = unixMsToJd(ms)
+  if (!Number.isNaN(ms)) {
+    clock.jd = clock.clamp(unixMsToJd(ms))
+    dateLinked = true
+  }
 }
-clock.playing = true // gentle orbital motion on load
+clock.playing = !dateLinked
 
 let positions = computePositions(clock.jd)
 
@@ -207,6 +222,8 @@ function flyTo(id: string, instant = false): void {
 selectEl.addEventListener('change', () => flyTo(selectEl.value))
 
 window.addEventListener('keydown', (e) => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return
+  if ((e.target as HTMLElement | null)?.matches?.('input, select, textarea')) return
   if (e.key === '[' || e.key === ']') {
     const i = BODIES.findIndex((b) => b.id === focus.targetId)
     const n = (i + (e.key === ']' ? 1 : BODIES.length - 1)) % BODIES.length
@@ -221,7 +238,7 @@ window.addEventListener('resize', () => {
 })
 
 document.addEventListener('visibilitychange', () => {
-  renderer.setAnimationLoop(document.hidden ? null : tick)
+  renderer.setAnimationLoop(document.hidden ? null : loop)
 })
 
 // --- pointer: click-to-fly + hover ---
@@ -231,27 +248,48 @@ let downX = 0
 let downY = 0
 let downT = 0
 let moved = false
+let activePointer: number | null = null
+let touchGesture = false
 const el = renderer.domElement
 const toNdc = (cx: number, cy: number, out: THREE.Vector2) =>
   out.set((cx / window.innerWidth) * 2 - 1, -(cy / window.innerHeight) * 2 + 1)
 
 el.addEventListener('pointerdown', (e) => {
+  // Only a primary left/touch pointer starts a click gesture; a second finger
+  // (pinch) or another button aborts it so it can't fire an accidental fly-to.
+  if (activePointer !== null || e.button !== 0 || !e.isPrimary) {
+    moved = true
+    return
+  }
+  activePointer = e.pointerId
+  touchGesture = e.pointerType === 'touch'
   downX = e.clientX
   downY = e.clientY
   downT = performance.now()
   moved = false
 })
 el.addEventListener('pointermove', (e) => {
-  if (Math.hypot(e.clientX - downX, e.clientY - downY) > 6) moved = true
-  toNdc(e.clientX, e.clientY, hoverNdc)
-  hoverPending = true
+  const slop = e.pointerType === 'touch' ? 12 : 6
+  if (e.pointerId === activePointer && Math.hypot(e.clientX - downX, e.clientY - downY) > slop) moved = true
+  // Hover affordances are meaningless mid-drag and on touch.
+  if (e.pointerType !== 'touch') {
+    toNdc(e.clientX, e.clientY, hoverNdc)
+    hoverPending = true
+  }
 })
 el.addEventListener('pointerup', (e) => {
+  if (e.pointerId !== activePointer) return
+  activePointer = null
   if (!moved && performance.now() - downT < 350) {
     toNdc(e.clientX, e.clientY, hoverNdc)
-    const id = pickBody(hoverNdc, rig.camera, solar, window.innerHeight)
+    // Fingers need a bigger target than a mouse cursor.
+    const id = pickBody(hoverNdc, rig.camera, solar, window.innerHeight, touchGesture ? 22 : 8)
     if (id) flyTo(id)
   }
+})
+el.addEventListener('pointercancel', () => {
+  activePointer = null
+  moved = true
 })
 el.addEventListener('pointerleave', () => {
   hoverPending = false
@@ -325,7 +363,10 @@ function tick(dtOverride?: number): void {
   draw()
 }
 
-renderer.setAnimationLoop(tick)
+// setAnimationLoop passes the rAF timestamp as the first argument — never hand it
+// tick() directly or it would be misread as a dt override.
+const loop = (): void => tick()
+renderer.setAnimationLoop(loop)
 
 if (import.meta.env.DEV) {
   ;(window as unknown as { __orrery: unknown }).__orrery = {

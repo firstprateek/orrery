@@ -11,13 +11,19 @@ export function readDateParam(): string | null {
   return new URLSearchParams(location.search).get('date')
 }
 
+/** Pure builder so the URL logic is unit-testable. Preserves foreign params + hash. */
+export function buildUrl(search: string, pathname: string, hash: string, obj: string, dateIso: string | null): string {
+  const params = new URLSearchParams(search)
+  params.set('obj', obj)
+  if (dateIso) params.set('date', dateIso)
+  else params.delete('date')
+  return `${pathname}?${params.toString()}${hash}`
+}
+
 let pending = 0
 export function writeState(obj: string, dateIso: string | null): void {
   clearTimeout(pending)
   pending = window.setTimeout(() => {
-    const params = new URLSearchParams()
-    params.set('obj', obj)
-    if (dateIso) params.set('date', dateIso)
-    history.replaceState(null, '', `${location.pathname}?${params.toString()}`)
+    history.replaceState(null, '', buildUrl(location.search, location.pathname, location.hash, obj, dateIso))
   }, 400)
 }

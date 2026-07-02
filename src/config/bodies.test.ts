@@ -51,9 +51,18 @@ describe('body registry', () => {
     }
   })
 
-  it('encodes the known retrograde rotators', () => {
+  it('encodes retrograde spin exactly once (tilt>90° XOR negative period)', () => {
+    // Venus/Uranus/Pluto: obliquity >90° already flips the pole — period must be
+    // positive or the two flips cancel to prograde. Triton: tilt ~0 + negative.
     for (const id of ['venus', 'uranus', 'pluto', 'triton']) {
-      expect(BODY_BY_ID[id].rotationPeriodHours).toBeLessThan(0)
+      const b = BODY_BY_ID[id]
+      const tiltFlip = b.axialTiltDeg > 90
+      const periodFlip = b.rotationPeriodHours < 0
+      expect(tiltFlip !== periodFlip).toBe(true)
+    }
+    // And no body anywhere double-encodes it.
+    for (const b of BODIES) {
+      expect(b.axialTiltDeg > 90 && b.rotationPeriodHours < 0).toBe(false)
     }
   })
 
