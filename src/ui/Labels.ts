@@ -26,15 +26,24 @@ export class Labels {
   private readonly entries: Entry[] = []
   private readonly container: HTMLDivElement
 
-  constructor(solar: SolarSystem) {
+  constructor(solar: SolarSystem, onSelect?: (id: string) => void) {
     this.container = document.createElement('div')
     this.container.style.cssText = 'position:fixed;inset:0;pointer-events:none;overflow:hidden;z-index:5'
     for (const view of solar.views) {
       const el = document.createElement('div')
       el.textContent = view.def.name
+      // Labels are often the only visible trace of a body at true scale, so they
+      // are real click targets (padding grows the touch target beyond the text).
       el.style.cssText =
         'position:absolute;left:0;top:0;transform:' + OFFHIDE +
-        ';color:#e7ecff;font:11px system-ui,sans-serif;text-shadow:0 1px 2px #000;white-space:nowrap;will-change:transform'
+        ';color:#e7ecff;font:12px system-ui,sans-serif;text-shadow:0 1px 2px #000;white-space:nowrap;will-change:transform;' +
+        'pointer-events:auto;cursor:pointer;padding:6px'
+      if (onSelect) {
+        el.addEventListener('pointerup', (e) => {
+          e.stopPropagation()
+          onSelect(view.def.id)
+        })
+      }
       this.container.appendChild(el)
       const tier = view.def.type === 'moon' ? 1 : 0
       this.entries.push({ id: view.def.id, el, tier })
@@ -82,7 +91,8 @@ export class Labels {
         continue
       }
       placed.push({ x: c.x, y: c.y })
-      c.e.el.style.transform = `translate3d(${(c.x + 8).toFixed(1)}px,${(c.y - 8).toFixed(1)}px,0)`
+      // +2/-14 keeps the TEXT at the old +8/-8 spot after the 6px hit-padding.
+      c.e.el.style.transform = `translate3d(${(c.x + 2).toFixed(1)}px,${(c.y - 14).toFixed(1)}px,0)`
       c.e.el.style.opacity = pinned ? '1' : '0.72'
       c.e.el.style.fontWeight = c.e.id === focusId ? '600' : '400'
     }

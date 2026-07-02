@@ -17,9 +17,11 @@ const SPEEDS = [
 const DEFAULT_SPEED_INDEX = 1 // 1 hour/s — gentle: Earth turns once per ~24s, orbits creep
 
 const btnCss =
-  'background:#171a26;color:#cdd6ff;border:1px solid #2a2f44;border-radius:8px;padding:6px 10px;font:13px system-ui;cursor:pointer;min-width:34px'
+  'background:#171a26;color:#cdd6ff;border:1px solid #2a2f44;border-radius:8px;padding:6px 10px;font:16px system-ui;cursor:pointer'
 
 export class TimeBar {
+  /** The bar element — exposed so overlays can offset above its real height. */
+  readonly el: HTMLDivElement
   private readonly playBtn: HTMLButtonElement
   private readonly dateEl: HTMLSpanElement
   private readonly scrub: HTMLInputElement
@@ -37,8 +39,9 @@ export class TimeBar {
 
     const bar = document.createElement('div')
     bar.style.cssText =
-      'position:fixed;bottom:14px;left:50%;transform:translateX(-50%);display:flex;gap:10px;align-items:center;' +
-      'background:rgba(12,14,22,0.72);border:1px solid #232838;border-radius:12px;padding:8px 12px;backdrop-filter:blur(8px);z-index:10;max-width:min(720px,92vw)'
+      'position:fixed;bottom:calc(10px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:center;' +
+      'background:rgba(12,14,22,0.72);border:1px solid #232838;border-radius:12px;padding:8px 12px;' +
+      '-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);z-index:10;max-width:min(720px,94vw)'
 
     this.playBtn = document.createElement('button')
     this.playBtn.style.cssText = btnCss
@@ -78,7 +81,7 @@ export class TimeBar {
     bar.appendChild(now)
 
     this.dateEl = document.createElement('span')
-    this.dateEl.style.cssText = 'color:#aab3d0;font:12px ui-monospace,monospace;white-space:nowrap;min-width:150px;text-align:center'
+    this.dateEl.style.cssText = 'color:#aab3d0;font:12px ui-monospace,monospace;white-space:nowrap;text-align:center'
     bar.appendChild(this.dateEl)
 
     this.scrub = document.createElement('input')
@@ -87,7 +90,7 @@ export class TimeBar {
     this.scrub.max = '1'
     this.scrub.step = '0.0001'
     this.scrub.setAttribute('aria-label', 'Scrub date')
-    this.scrub.style.cssText = 'flex:1;min-width:120px;accent-color:#6f8bff;cursor:pointer'
+    this.scrub.style.cssText = 'flex:1 1 100%;min-width:0;accent-color:#6f8bff;cursor:pointer;touch-action:none'
     this.scrub.addEventListener('pointerdown', () => (this.dragging = true))
     // pointercancel/lostpointercapture too: a browser-claimed touch gesture must
     // not leave the drag flag stuck (which would freeze the thumb forever).
@@ -104,6 +107,7 @@ export class TimeBar {
     bar.appendChild(this.scrub)
 
     document.body.appendChild(bar)
+    this.el = bar
     this.syncPlay()
     this.refresh()
   }

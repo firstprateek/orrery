@@ -21,7 +21,17 @@ import { readObjParam, readDateParam, writeState } from './ui/urlState'
 const app = document.getElementById('app')
 if (!app) throw new Error('#app container not found')
 
-const renderer = createRenderer()
+// WebGL2 context creation can fail (blocked GPU, old device, policy). Show a
+// human message instead of a silent black page.
+let renderer: ReturnType<typeof createRenderer>
+try {
+  renderer = createRenderer()
+} catch (err) {
+  app.innerHTML =
+    '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#cdd6ff;font:15px/1.6 system-ui;text-align:center;padding:24px">' +
+    'This experience needs WebGL2.<br>Try updating your browser or enabling hardware acceleration.</div>'
+  throw err
+}
 renderer.domElement.style.cursor = 'grab'
 app.appendChild(renderer.domElement)
 
@@ -104,31 +114,56 @@ const blendVel = { value: 0 }
 let prevFr = 0
 
 // --- UI ---
+// 16px font on form controls: anything smaller triggers iOS Safari's page zoom
+// on focus, which the camera's touch-action:none then makes hard to undo.
+const controlCss =
+  'background:#11131c;color:#cdd6ff;border:1px solid #2a2f44;border-radius:8px;padding:6px 10px;font:16px system-ui;max-width:44vw'
 const ui = document.createElement('div')
-ui.style.cssText = 'position:fixed;top:14px;left:14px;display:flex;gap:10px;align-items:center;z-index:10'
+ui.style.cssText =
+  'position:fixed;top:calc(10px + env(safe-area-inset-top));left:calc(10px + env(safe-area-inset-left));right:calc(10px + env(safe-area-inset-right));' +
+  'display:flex;gap:8px;align-items:center;flex-wrap:wrap;z-index:10;pointer-events:none'
 const selectEl = document.createElement('select')
 selectEl.setAttribute('aria-label', 'Fly to a body')
-selectEl.style.cssText = 'background:#11131c;color:#cdd6ff;border:1px solid #2a2f44;border-radius:8px;padding:6px 10px;font:13px system-ui'
-for (const b of BODIES) {
-  const o = document.createElement('option')
-  o.value = b.id
-  o.textContent = b.name
-  selectEl.appendChild(o)
+selectEl.title = 'Fly to a planet or moon'
+selectEl.style.cssText = controlCss + ';pointer-events:auto'
+// Group moons under their parent so the hierarchy is legible.
+{
+  let groupEl: HTMLOptGroupElement | null = null
+  for (const b of BODIES) {
+    const o = document.createElement('option')
+    o.value = b.id
+    o.textContent = b.name
+    if (b.type === 'moon') {
+      const parentName = BODY_BY_ID[b.parent as string].name
+      if (!groupEl || groupEl.label !== `${parentName} moons`) {
+        groupEl = document.createElement('optgroup')
+        groupEl.label = `${parentName} moons`
+        selectEl.appendChild(groupEl)
+      }
+      groupEl.appendChild(o)
+    } else {
+      groupEl = null
+      selectEl.appendChild(o)
+    }
+  }
 }
 ui.appendChild(selectEl)
 
+// Action-oriented label: the button says what clicking DOES, not a state name.
 const scaleBtn = document.createElement('button')
-scaleBtn.style.cssText = 'background:#171a26;color:#cdd6ff;border:1px solid #2a2f44;border-radius:8px;padding:6px 10px;font:13px system-ui;cursor:pointer'
-scaleBtn.textContent = 'Scale: realistic'
+scaleBtn.style.cssText = controlCss + ';cursor:pointer;pointer-events:auto'
+scaleBtn.title = 'Toggle between true scale and a compressed overview (sizes exaggerated)'
+scaleBtn.textContent = 'Overview'
 scaleBtn.addEventListener('click', () => {
   targetBlend = targetBlend > 0.5 ? 0 : 1
-  scaleBtn.textContent = targetBlend > 0.5 ? 'Scale: visual' : 'Scale: realistic'
+  scaleBtn.textContent = targetBlend > 0.5 ? 'True scale' : 'Overview'
 })
 ui.appendChild(scaleBtn)
 
 const qualitySel = document.createElement('select')
 qualitySel.setAttribute('aria-label', 'Graphics quality')
-qualitySel.style.cssText = selectEl.style.cssText
+qualitySel.title = 'Graphics quality (higher looks better, lower runs faster)'
+qualitySel.style.cssText = controlCss + ';pointer-events:auto'
 for (const t of QUALITY_ORDER) {
   const o = document.createElement('option')
   o.value = t
@@ -166,12 +201,20 @@ function applyQuality(tier: QualityTier): void {
   if (qualitySel.value !== tier) qualitySel.value = tier
 }
 
+// Debug diagnostics (frame time, GPU string) only with ?debug — end users get a
+// clean "Body · distance" readout, not a profiler.
+const debugMode = new URLSearchParams(location.search).has('debug')
 const hud = document.createElement('div')
-hud.style.cssText = 'position:fixed;left:14px;bottom:60px;color:#aab3d0;font:12px/1.6 ui-monospace,monospace;text-shadow:0 1px 2px #000;pointer-events:none;z-index:10'
+hud.style.cssText =
+  'position:fixed;left:calc(14px + env(safe-area-inset-left));bottom:calc(84px + env(safe-area-inset-bottom));max-width:min(60vw,340px);' +
+  'color:#aab3d0;font:12px/1.6 ui-monospace,monospace;text-shadow:0 1px 2px #000;pointer-events:none;z-index:10'
 document.body.appendChild(hud)
 
+// Fact panel sits ABOVE the time bar's band so they never collide.
 const factEl = document.createElement('div')
-factEl.style.cssText = 'position:fixed;right:14px;bottom:14px;max-width:300px;color:#cdd6ff;font:13px/1.5 system-ui;text-align:right;text-shadow:0 1px 3px #000;pointer-events:none;z-index:10'
+factEl.style.cssText =
+  'position:fixed;right:calc(14px + env(safe-area-inset-right));bottom:calc(84px + env(safe-area-inset-bottom));max-width:min(300px,44vw);' +
+  'color:#cdd6ff;font:13px/1.5 system-ui;text-align:right;text-shadow:0 1px 3px #000;pointer-events:none;z-index:10'
 document.body.appendChild(factEl)
 
 if (softwareRendering) {
@@ -183,7 +226,38 @@ if (softwareRendering) {
   document.body.appendChild(warn)
 }
 
-const labels = new Labels(solar)
+// First-run hint: the whole UI is otherwise unlabeled chrome. Auto-fades, and
+// never comes back once seen (or once the user interacts).
+function hintSeen(): boolean {
+  try {
+    return localStorage.getItem('orrery-hint-seen') === '1'
+  } catch {
+    return false
+  }
+}
+if (!hintSeen()) {
+  const hint = document.createElement('div')
+  hint.textContent = 'drag to look around · scroll or pinch to zoom · tap a planet or pick one above to fly there'
+  hint.style.cssText =
+    'position:fixed;left:50%;top:calc(64px + env(safe-area-inset-top));transform:translateX(-50%);max-width:min(92vw,560px);text-align:center;' +
+    'background:rgba(12,14,22,0.8);color:#cdd6ff;border:1px solid #2a2f44;border-radius:10px;padding:10px 16px;font:14px/1.5 system-ui;z-index:20;' +
+    'transition:opacity 1s;cursor:pointer'
+  const dismissHint = () => {
+    hint.style.opacity = '0'
+    setTimeout(() => hint.remove(), 1100)
+    try {
+      localStorage.setItem('orrery-hint-seen', '1')
+    } catch {
+      // fine — it'll just show again next visit
+    }
+  }
+  hint.addEventListener('click', dismissHint)
+  renderer.domElement.addEventListener('pointerdown', dismissHint, { once: true })
+  setTimeout(dismissHint, 12000)
+  document.body.appendChild(hint)
+}
+
+const labels = new Labels(solar, (id) => flyTo(id))
 
 // --- focus / framing ---
 let fps = 0
@@ -208,15 +282,30 @@ function updateFact(): void {
 
 function updateStats(): void {
   const def = BODY_BY_ID[focus.targetId]
-  const distKm = rig.distance * AU_KM
-  const dist = distKm > 1e6 ? `${rig.distance.toFixed(2)} AU` : `${distKm.toFixed(0)} km`
-  hud.textContent = `${def.name} · ${dist} · ${msEma.toFixed(1)} ms (${fps.toFixed(0)} fps) · ${gpuName}`
+  // Render units only equal AU in true scale; in the overview the distance is
+  // a compressed mapping, so don't present it as a physical number.
+  let dist: string
+  if (blend > 0.01) {
+    dist = 'overview'
+  } else {
+    const distKm = rig.distance * AU_KM
+    dist = distKm > 1e6 ? `${rig.distance.toFixed(2)} AU` : `${distKm.toFixed(0)} km`
+  }
+  hud.textContent = debugMode
+    ? `${def.name} · ${dist} · ${msEma.toFixed(1)} ms (${fps.toFixed(0)} fps) · ${gpuName}`
+    : `${def.name} · ${dist}`
 }
 
 function flyTo(id: string, instant = false): void {
   focus.setTarget(id)
   if (instant) focus.snap(positions)
   const def = BODY_BY_ID[id]
+  // Moons collapse onto their planet in the overview mapping — flying to one
+  // there would bury the camera inside the parent. Return to true scale first.
+  if (def.type === 'moon' && targetBlend > 0.5) {
+    targetBlend = 0
+    scaleBtn.textContent = 'Overview'
+  }
   const a = positions[id]
   const len = Math.hypot(a.x, a.y, a.z)
   const dir =
@@ -246,6 +335,7 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight)
   if (composer) composer.setSize(window.innerWidth, window.innerHeight)
   rig.resize(window.innerWidth / window.innerHeight)
+  layoutOverlays()
 })
 
 document.addEventListener('visibilitychange', () => {
@@ -311,6 +401,15 @@ el.addEventListener('pointerleave', () => {
 
 const timeBar = new TimeBar(clock, syncUrl)
 
+// The time bar wraps to multiple rows on narrow screens — anchor the HUD and
+// fact panel above its REAL height so they never end up underneath it.
+function layoutOverlays(): void {
+  const off = `calc(${timeBar.el.offsetHeight + 24}px + env(safe-area-inset-bottom))`
+  hud.style.bottom = off
+  factEl.style.bottom = off
+}
+layoutOverlays()
+
 flyTo(startId, true)
 
 // --- loop ---
@@ -371,8 +470,11 @@ function tick(dtOverride?: number): void {
 
   msEma += (dt * 1000 - msEma) * 0.1
   fps = 1000 / msEma
-  updateStats()
-  if (++frame % 12 === 0) timeBar.refresh()
+  // DOM writes are throttled — a per-frame text swap costs layout work.
+  if (++frame % 12 === 0) {
+    updateStats()
+    timeBar.refresh()
+  }
 
   draw()
 }
