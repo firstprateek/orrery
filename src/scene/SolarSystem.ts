@@ -107,26 +107,27 @@ export class SolarSystem {
   }
 
   private makeMaterial(def: BodyDef, loader: THREE.TextureLoader, maxAnisotropy: number): THREE.Material {
-    const map = def.texture ? this.loadTexture(def.texture, loader, maxAnisotropy) : null
-    if (def.type === 'star') {
-      // Unlit; setSunBoost() pushes it into HDR only when a bloom pipeline is
-      // active — on the direct path the boost would just crush the photosphere
-      // texture to a flat white disc through ACES.
-      return new THREE.MeshBasicMaterial({ map: map ?? undefined, color: map ? 0xffffff : def.color, toneMapped: true })
+    // Textured bodies hold their natural tint until the map streams in (a full-
+    // screen flat WHITE Earth on first paint reads as broken); onLoad flips the
+    // multiplier to white so the texture shows true colors.
+    const material: THREE.MeshBasicMaterial | THREE.MeshStandardMaterial =
+      def.type === 'star'
+        ? // Unlit; setSunBoost() pushes it into HDR only when bloom is active.
+          new THREE.MeshBasicMaterial({ color: def.color, toneMapped: true })
+        : new THREE.MeshStandardMaterial({ color: def.color, metalness: 0, roughness: 0.92 })
+    if (def.texture) {
+      const tex = loader.load(`${TEXTURE_BASE}${def.texture}`, () => {
+        // Attach the map only once loaded — binding an empty texture renders black.
+        material.map = tex
+        if (def.type !== 'star') material.color.setRGB(1, 1, 1)
+        // The Sun's color is owned by setSunBoost(); only clear the placeholder tint.
+        else if (material.color.getHex() === def.color) material.color.setRGB(1, 1, 1)
+        material.needsUpdate = true
+      })
+      tex.colorSpace = THREE.SRGBColorSpace
+      tex.anisotropy = Math.min(8, maxAnisotropy)
     }
-    return new THREE.MeshStandardMaterial({
-      map: map ?? undefined,
-      color: map ? 0xffffff : def.color,
-      metalness: 0,
-      roughness: 0.92,
-    })
-  }
-
-  private loadTexture(file: string, loader: THREE.TextureLoader, maxAnisotropy: number): THREE.Texture {
-    const tex = loader.load(`${TEXTURE_BASE}${file}`)
-    tex.colorSpace = THREE.SRGBColorSpace
-    tex.anisotropy = Math.min(8, maxAnisotropy)
-    return tex
+    return material
   }
 
   private makeRing(def: BodyDef, loader: THREE.TextureLoader): THREE.Mesh {

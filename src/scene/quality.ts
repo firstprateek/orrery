@@ -31,9 +31,9 @@ export const QUALITY: Record<QualityTier, QualitySettings> = {
   // triggers a full-res float MSAA blit-resolve every pass that is catastrophic
   // (or software-emulated) on GPUs/browsers without native float-MSAA. Performance
   // skips the composer entirely (direct render, MSAA from the default framebuffer).
-  performance: { tier: 'performance', label: 'Performance · 120fps', targetFps: 120, dpr: 1.0, post: false, msaaSamples: 0, bloomScale: 0.5, beltCount: 1500 },
-  quality: { tier: 'quality', label: 'Quality · 60fps', targetFps: 60, dpr: 1.5, post: true, msaaSamples: 0, bloomScale: 0.5, beltCount: 2500 },
-  highest: { tier: 'highest', label: 'Highest · 30fps', targetFps: 30, dpr: 2.0, post: true, msaaSamples: 0, bloomScale: 1.0, beltCount: 3500 },
+  performance: { tier: 'performance', label: 'Fast · 120fps', targetFps: 120, dpr: 1.0, post: false, msaaSamples: 0, bloomScale: 0.5, beltCount: 1500 },
+  quality: { tier: 'quality', label: 'Balanced · 60fps', targetFps: 60, dpr: 1.5, post: true, msaaSamples: 0, bloomScale: 0.5, beltCount: 2500 },
+  highest: { tier: 'highest', label: 'Beautiful · 30fps', targetFps: 30, dpr: 2.0, post: true, msaaSamples: 0, bloomScale: 1.0, beltCount: 3500 },
 }
 
 /** Largest belt allocation across tiers (InstancedMesh capacity). */

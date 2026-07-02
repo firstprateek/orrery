@@ -50,9 +50,9 @@ stars. (This is how Stellarium, Celestia, and NASA's Eyes work.)
 
 A selector (top bar, persisted) trades frame rate for fidelity:
 
-- **Performance · 120fps** — DPR 1.0, half-res bloom, lighter belt.
-- **Quality · 60fps** — DPR 1.5, half-res bloom.
-- **Highest · 30fps** — DPR 2.0 (full Retina), full-res bloom, 4× MSAA, dense belt.
+- **Fast · 120fps** — DPR 1.0, half-res bloom, lighter belt.
+- **Balanced · 60fps** — DPR 1.5, half-res bloom.
+- **Beautiful · 30fps** — DPR 2.0 (full Retina), full-res bloom, 4× MSAA, dense belt.
 
 The big levers are device-pixel-ratio (cost ∝ dpr²) and bloom resolution;
 switching a tier rebuilds the post pipeline.
