@@ -109,9 +109,10 @@ export class SolarSystem {
   private makeMaterial(def: BodyDef, loader: THREE.TextureLoader, maxAnisotropy: number): THREE.Material {
     const map = def.texture ? this.loadTexture(def.texture, loader, maxAnisotropy) : null
     if (def.type === 'star') {
-      // Unlit + HDR-boosted (>1) so the bloom pass picks it up as a glowing Sun.
-      const hdr = new THREE.Color(2.6, 2.45, 2.2)
-      return new THREE.MeshBasicMaterial({ map: map ?? undefined, color: map ? hdr : new THREE.Color(def.color), toneMapped: true })
+      // Unlit; setSunBoost() pushes it into HDR only when a bloom pipeline is
+      // active — on the direct path the boost would just crush the photosphere
+      // texture to a flat white disc through ACES.
+      return new THREE.MeshBasicMaterial({ map: map ?? undefined, color: map ? 0xffffff : def.color, toneMapped: true })
     }
     return new THREE.MeshStandardMaterial({
       map: map ?? undefined,
@@ -205,6 +206,13 @@ export class SolarSystem {
     // origin (true scale only — hidden in the compressed visual overview).
     this.belt.visible = blend < 0.5
     this.belt.position.set(-focusAu.x, -focusAu.y, -focusAu.z)
+  }
+
+  /** HDR-boost the Sun when a bloom pipeline is active; plain texture otherwise. */
+  setSunBoost(bloomActive: boolean): void {
+    const m = this.byId['sun'].mesh.material as THREE.MeshBasicMaterial
+    if (bloomActive) m.color.setRGB(2.6, 2.45, 2.2)
+    else m.color.setRGB(1, 1, 1)
   }
 
   /** Highlight a body (hover/selection) with a faint emissive boost. */

@@ -41,7 +41,8 @@ export function createComposer(
     0.85, // luminance threshold — only the HDR Sun crosses it
   )
   composer.addPass(bloom)
-  composer.addPass(new OutputPass())
+  const output = new OutputPass()
+  composer.addPass(output)
 
   return {
     composer,
@@ -54,7 +55,23 @@ export function createComposer(
       composer.render()
     },
     dispose() {
+      // EffectComposer.dispose() does NOT dispose added passes; the bloom pass
+      // alone owns ~11 render targets — leak on every tier switch otherwise.
+      bloom.dispose()
+      output.dispose()
       composer.dispose()
     },
   }
+}
+
+/**
+ * The composer renders into a HalfFloat target, which WebGL2 only guarantees
+ * with the color-buffer-float extensions. Without them the composer would be
+ * black or catastrophically slow — callers must fall back to direct rendering.
+ */
+export function supportsHdrComposer(renderer: THREE.WebGLRenderer): boolean {
+  return (
+    renderer.extensions.has('EXT_color_buffer_half_float') ||
+    renderer.extensions.has('EXT_color_buffer_float')
+  )
 }

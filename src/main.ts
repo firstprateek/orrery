@@ -5,7 +5,7 @@ import { computePositions } from './sim/ephemeris'
 import { SimClock } from './sim/time'
 import { makeTrueScale, makeVisualScale } from './scene/scaleMapping'
 import { createRenderer } from './scene/Renderer'
-import { createComposer } from './scene/Composer'
+import { createComposer, supportsHdrComposer } from './scene/Composer'
 import { QUALITY, QUALITY_ORDER, resolveTier, type QualityTier } from './scene/quality'
 import { CameraRig } from './scene/CameraRig'
 import { SolarSystem } from './scene/SolarSystem'
@@ -58,12 +58,18 @@ const sky = createSky(loader)
 scene.add(sky)
 
 let starField: THREE.Points | null = null
-createStarField(import.meta.env.BASE_URL).then((sf) => {
-  starField = sf
-  scene.add(sf)
-})
+createStarField(import.meta.env.BASE_URL, renderer.getPixelRatio())
+  .then((sf) => {
+    starField = sf
+    scene.add(sf)
+  })
+  .catch((err) => console.warn('star field unavailable:', err))
 
-let composer = quality.post ? createComposer(renderer, scene, rig.camera, quality) : null
+// The HDR composer needs float-renderable targets; without the extension, fall
+// back to the direct path rather than rendering black (or crawling).
+const hdrOk = supportsHdrComposer(renderer)
+let composer = quality.post && hdrOk ? createComposer(renderer, scene, rig.camera, quality) : null
+solar.setSunBoost(composer !== null)
 
 function draw(): void {
   if (composer) composer.render()
@@ -147,11 +153,16 @@ function applyQuality(tier: QualityTier): void {
     composer.dispose()
     composer = null
   }
-  if (quality.post) {
+  if (quality.post && hdrOk) {
     composer = createComposer(renderer, scene, rig.camera, quality)
     composer.setSize(window.innerWidth, window.innerHeight)
   }
+  solar.setSunBoost(composer !== null)
   solar.belt.count = quality.beltCount
+  // Star point sizes are in device pixels — keep them in sync with the new DPR.
+  if (starField) {
+    ;(starField.material as THREE.ShaderMaterial).uniforms.uPixelRatio.value = renderer.getPixelRatio()
+  }
   if (qualitySel.value !== tier) qualitySel.value = tier
 }
 
@@ -334,6 +345,9 @@ function tick(dtOverride?: number): void {
   if (fr !== prevFr) {
     if (prevFr > 0) rig.scaleDistance(fr / prevFr)
     rig.setClip(fr)
+    // The zoom floor must track the blended radius too, or after a scale toggle
+    // you can dolly inside the surface (or get locked far out).
+    rig.controls.minDistance = fr * 1.02
     prevFr = fr
   }
 

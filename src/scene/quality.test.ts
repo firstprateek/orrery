@@ -28,4 +28,13 @@ describe('quality tiers', () => {
     expect(resolveTier('quality')).toBe('quality')
     expect(resolveTier('highest')).toBe('highest')
   })
+
+  it('never multisamples a float target (the ~0fps root cause) and keeps Performance composer-free', () => {
+    // Guard for PR #9: multisampled HalfFloat targets fall back to a per-pass
+    // float MSAA blit-resolve (or software) on GPUs without native float-MSAA.
+    for (const t of QUALITY_ORDER) {
+      expect(QUALITY[t].msaaSamples).toBe(0)
+    }
+    expect(QUALITY.performance.post).toBe(false)
+  })
 })

@@ -70,6 +70,8 @@ export function createAtmosphere(cfg: AtmoConfig): THREE.Mesh {
         float lit = smoothstep(-0.4, 0.3, ndl);
         float a = rim * lit;
         gl_FragColor = vec4(uColor * uStrength * a, a);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }
     `,
     side: THREE.BackSide,
