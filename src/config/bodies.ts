@@ -83,3 +83,20 @@ export const BODIES: BodyDef[] = [
 ]
 
 export const BODY_BY_ID: Record<string, BodyDef> = Object.fromEntries(BODIES.map((b) => [b.id, b]))
+
+/**
+ * A body's "family": itself, plus — when it's a planet — its moons, and — when
+ * it's a moon — its parent and siblings. Used to decide which deferred textures
+ * to start loading when a body is focused (the family is what's on screen).
+ */
+export function bodyFamily(id: string): string[] {
+  const def = BODY_BY_ID[id]
+  if (!def) return []
+  const anchor = def.type === 'moon' ? (def.parent as string) : def.id
+  const family = [def.id]
+  if (anchor !== def.id) family.push(anchor)
+  for (const b of BODIES) {
+    if (b.parent === anchor && b.id !== def.id) family.push(b.id)
+  }
+  return family
+}

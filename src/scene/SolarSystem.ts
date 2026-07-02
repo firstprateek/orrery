@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { BODIES, type BodyDef } from '../config/bodies'
+import { BODIES, bodyFamily, type BodyDef } from '../config/bodies'
 import { kmToAu, DEG2RAD } from '../config/constants'
 import { bodyRotationAngle } from '../math/rotation'
 import { makeBelt } from '../math/belt'
@@ -45,6 +45,7 @@ export class SolarSystem {
   readonly sunLight: THREE.PointLight
   readonly belt: THREE.InstancedMesh
   private highlighted: string | null = null
+  private readonly deferredTextures = new Map<string, () => void>()
 
   constructor(
     loader: THREE.TextureLoader,
@@ -139,19 +140,36 @@ export class SolarSystem {
           new THREE.MeshBasicMaterial({ color: def.color, toneMapped: true })
         : new THREE.MeshStandardMaterial({ color: def.color, metalness: 0, roughness: 0.92 })
     if (def.texture) {
-      const tex = loader.load(`${TEXTURE_BASE}${def.texture}`, () => {
-        // Attach the map only once loaded — binding an empty texture renders black.
-        material.map = tex
-        // Grayscale mosaics (Titan's near-IR, Phobos' Viking) keep the body tint.
-        if (def.type !== 'star' && !def.tintTexture) material.color.setRGB(1, 1, 1)
-        // The Sun's color is owned by setSunBoost(); only clear the placeholder tint.
-        else if (def.type === 'star' && material.color.getHex() === def.color) material.color.setRGB(1, 1, 1)
-        material.needsUpdate = true
-      })
-      tex.colorSpace = THREE.SRGBColorSpace
-      tex.anisotropy = Math.min(8, maxAnisotropy)
+      const start = () => {
+        const tex = loader.load(`${TEXTURE_BASE}${def.texture}`, () => {
+          // Attach the map only once loaded — binding an empty texture renders black.
+          material.map = tex
+          // Grayscale mosaics (Titan's near-IR, Phobos' Viking) keep the body tint.
+          if (def.type !== 'star' && !def.tintTexture) material.color.setRGB(1, 1, 1)
+          // The Sun's color is owned by setSunBoost(); only clear the placeholder tint.
+          else if (def.type === 'star' && material.color.getHex() === def.color) material.color.setRGB(1, 1, 1)
+          material.needsUpdate = true
+        })
+        tex.colorSpace = THREE.SRGBColorSpace
+        tex.anisotropy = Math.min(8, maxAnisotropy)
+      }
+      // Moon maps (~5 MB across 12 files) load lazily when their family is
+      // focused; planets/Sun load eagerly (they're visible in the overview).
+      if (def.type === 'moon') this.deferredTextures.set(def.id, start)
+      else start()
     }
     return material
+  }
+
+  /** Start any deferred texture loads for a body's on-screen family. */
+  ensureFamilyTextures(id: string): void {
+    for (const member of bodyFamily(id)) {
+      const start = this.deferredTextures.get(member)
+      if (start) {
+        this.deferredTextures.delete(member)
+        start()
+      }
+    }
   }
 
   private makeRing(def: BodyDef, loader: THREE.TextureLoader): THREE.Mesh {
