@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { BODIES, BODY_BY_ID } from './bodies'
+import { BODIES, BODY_BY_ID, bodyFamily } from './bodies'
 
 describe('body registry', () => {
   it('has unique ids', () => {
@@ -74,5 +74,25 @@ describe('body registry', () => {
     const s = BODY_BY_ID['saturn']
     expect(s.ringInnerKm!).toBeLessThan(s.ringOuterKm!)
     expect(s.ringTexture).toBeTruthy()
+  })
+})
+
+describe('bodyFamily', () => {
+  it('a planet family is itself + its moons', () => {
+    expect(bodyFamily('mars').sort()).toEqual(['deimos', 'mars', 'phobos'])
+  })
+
+  it('a moon family is itself + parent + siblings', () => {
+    const fam = bodyFamily('titan').sort()
+    expect(fam).toContain('saturn')
+    expect(fam).toContain('rhea')
+    expect(fam).toContain('iapetus')
+    expect(fam[0]).not.toBe(undefined)
+    expect(new Set(fam).size).toBe(fam.length) // no duplicates
+  })
+
+  it('a moonless body is just itself; unknown ids are empty', () => {
+    expect(bodyFamily('mercury')).toEqual(['mercury'])
+    expect(bodyFamily('nope')).toEqual([])
   })
 })

@@ -352,6 +352,7 @@ function updateStats(): void {
 function flyTo(id: string, instant = false): void {
   focus.setTarget(id)
   if (instant) focus.snap(positions)
+  solar.ensureFamilyTextures(id) // deferred moon maps start when their system is visited
   const def = BODY_BY_ID[id]
   // Moons collapse onto their planet in the overview mapping — flying to one
   // there would bury the camera inside the parent. Return to true scale first.
