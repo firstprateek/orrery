@@ -197,6 +197,35 @@ shareBtn.addEventListener('click', async () => {
   setTimeout(() => (shareBtn.textContent = 'Share'), 1600)
 })
 ui.appendChild(shareBtn)
+
+// Help overlay (the "?" button or key) — the controls are otherwise invisible.
+const helpBtn = document.createElement('button')
+helpBtn.textContent = '?'
+helpBtn.title = 'Controls'
+helpBtn.setAttribute('aria-label', 'Show controls help')
+helpBtn.style.cssText = controlCss + ';cursor:pointer;pointer-events:auto;min-width:38px'
+const helpOverlay = document.createElement('div')
+helpOverlay.style.cssText =
+  'position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(4,5,10,0.72);z-index:30;cursor:pointer'
+helpOverlay.innerHTML =
+  '<div style="background:#11131c;border:1px solid #2a2f44;border-radius:14px;padding:22px 28px;color:#cdd6ff;font:15px/2 system-ui;max-width:min(92vw,420px)">' +
+  '<b style="font-size:17px">Controls</b><br>' +
+  'Drag — look around<br>' +
+  'Scroll / pinch — zoom<br>' +
+  'Click or tap a body — fly to it<br>' +
+  '<code>[</code> / <code>]</code> — previous / next body<br>' +
+  'Overview — see the whole system (sizes exaggerated)<br>' +
+  'Time bar — play, speed up, or scrub through ±100 years<br>' +
+  'Share — copy a link to this exact view<br>' +
+  '<span style="color:#8892b8;font-size:13px">Zooming far out switches to Overview automatically.</span>' +
+  '</div>'
+const toggleHelp = () => {
+  helpOverlay.style.display = helpOverlay.style.display === 'none' ? 'flex' : 'none'
+}
+helpBtn.addEventListener('click', toggleHelp)
+helpOverlay.addEventListener('click', toggleHelp)
+document.body.appendChild(helpOverlay)
+ui.appendChild(helpBtn)
 document.body.appendChild(ui)
 
 function applyQuality(tier: QualityTier): void {
@@ -348,6 +377,7 @@ selectEl.addEventListener('change', () => flyTo(selectEl.value))
 window.addEventListener('keydown', (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return
   if ((e.target as HTMLElement | null)?.matches?.('input, select, textarea')) return
+  if (e.key === '?') toggleHelp()
   if (e.key === '[' || e.key === ']') {
     const i = BODIES.findIndex((b) => b.id === focus.targetId)
     const n = (i + (e.key === ']' ? 1 : BODIES.length - 1)) % BODIES.length
@@ -485,6 +515,16 @@ function tick(dtOverride?: number): void {
   }
 
   rig.update(dt)
+
+  // Zooming far out at true scale used to show nothing (every body sub-pixel in
+  // an empty starfield) — past ~6 render units (~6 AU of orbit distance) the
+  // user clearly wants the system view, so engage the overview automatically.
+  if (targetBlend === 0 && !focus.flying && rig.distance > 6) {
+    targetBlend = 1
+    scaleBtn.textContent = 'True scale'
+    syncUrl()
+  }
+
   sky.position.copy(rig.camera.position)
   if (starField) starField.position.copy(rig.camera.position)
 
