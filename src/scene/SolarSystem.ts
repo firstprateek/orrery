@@ -133,9 +133,10 @@ export class SolarSystem {
       const tex = loader.load(`${TEXTURE_BASE}${def.texture}`, () => {
         // Attach the map only once loaded — binding an empty texture renders black.
         material.map = tex
-        if (def.type !== 'star') material.color.setRGB(1, 1, 1)
+        // Grayscale mosaics (Titan's near-IR, Phobos' Viking) keep the body tint.
+        if (def.type !== 'star' && !def.tintTexture) material.color.setRGB(1, 1, 1)
         // The Sun's color is owned by setSunBoost(); only clear the placeholder tint.
-        else if (material.color.getHex() === def.color) material.color.setRGB(1, 1, 1)
+        else if (def.type === 'star' && material.color.getHex() === def.color) material.color.setRGB(1, 1, 1)
         material.needsUpdate = true
       })
       tex.colorSpace = THREE.SRGBColorSpace
