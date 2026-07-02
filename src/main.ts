@@ -16,7 +16,7 @@ import { pickBody } from './scene/Picker'
 import { smoothDamp } from './math/smoothDamp'
 import { Labels } from './ui/Labels'
 import { TimeBar } from './ui/TimeBar'
-import { readObjParam, readDateParam, writeState } from './ui/urlState'
+import { readObjParam, readDateParam, readScaleParam, buildUrl, writeState } from './ui/urlState'
 
 const app = document.getElementById('app')
 if (!app) throw new Error('#app container not found')
@@ -108,8 +108,9 @@ const startId = requested && BODY_BY_ID[requested] ? requested : 'earth'
 const focus = new FocusController(startId, positions)
 
 // --- scale blend (0 = realistic/true, 1 = visual/poster) ---
-let blend = 0
-let targetBlend = 0
+// A shared ?scale=overview link opens straight in the poster view.
+let blend = readScaleParam() ? 1 : 0
+let targetBlend = blend
 const blendVel = { value: 0 }
 let prevFr = 0
 
@@ -153,10 +154,11 @@ ui.appendChild(selectEl)
 const scaleBtn = document.createElement('button')
 scaleBtn.style.cssText = controlCss + ';cursor:pointer;pointer-events:auto'
 scaleBtn.title = 'Toggle between true scale and a compressed overview (sizes exaggerated)'
-scaleBtn.textContent = 'Overview'
+scaleBtn.textContent = targetBlend > 0.5 ? 'True scale' : 'Overview'
 scaleBtn.addEventListener('click', () => {
   targetBlend = targetBlend > 0.5 ? 0 : 1
   scaleBtn.textContent = targetBlend > 0.5 ? 'True scale' : 'Overview'
+  syncUrl()
 })
 ui.appendChild(scaleBtn)
 
@@ -173,6 +175,28 @@ for (const t of QUALITY_ORDER) {
 qualitySel.value = quality.tier
 qualitySel.addEventListener('change', () => applyQuality(qualitySel.value as QualityTier))
 ui.appendChild(qualitySel)
+
+// Share: snapshot the CURRENT moment (body + exact date + scale mode) into a
+// link and copy it — even while time is playing.
+const shareBtn = document.createElement('button')
+shareBtn.textContent = 'Share'
+shareBtn.title = 'Copy a link to this exact view and moment'
+shareBtn.style.cssText = controlCss + ';cursor:pointer;pointer-events:auto'
+shareBtn.addEventListener('click', async () => {
+  const url =
+    location.origin +
+    buildUrl(location.search, location.pathname, '', focus.targetId, jdToIso(), targetBlend > 0.5)
+  try {
+    await navigator.clipboard.writeText(url)
+    shareBtn.textContent = 'Copied ✓'
+  } catch {
+    // Clipboard unavailable (permissions/insecure context): show the URL so the
+    // user can copy it manually.
+    prompt('Copy this link:', url)
+  }
+  setTimeout(() => (shareBtn.textContent = 'Share'), 1600)
+})
+ui.appendChild(shareBtn)
 document.body.appendChild(ui)
 
 function applyQuality(tier: QualityTier): void {
@@ -272,7 +296,7 @@ function kindOf(def: BodyDef): 'sun' | 'planet' | 'moon' | 'small' {
 
 const jdToIso = () => jdToDate(clock.jd).toISOString()
 function syncUrl(): void {
-  writeState(focus.targetId, clock.playing ? null : jdToIso())
+  writeState(focus.targetId, clock.playing ? null : jdToIso(), targetBlend > 0.5)
 }
 
 function updateFact(): void {
