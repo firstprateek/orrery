@@ -3,6 +3,8 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js'
+import { FXAAShader } from 'three/addons/shaders/FXAAShader.js'
 import type { QualitySettings } from './quality'
 
 // HDR post pipeline. The scene renders into a HalfFloat target (linear, so the
@@ -44,12 +46,24 @@ export function createComposer(
   const output = new OutputPass()
   composer.addPass(output)
 
+  // Composer tiers get no default-framebuffer MSAA (the scene renders into the
+  // float target), so anti-alias in post: FXAA on the final tone-mapped sRGB
+  // image — cheap (~single texture pass) and universally supported.
+  const fxaa = new ShaderPass(FXAAShader)
+  const setFxaaRes = (w: number, h: number) => {
+    const dpr = renderer.getPixelRatio()
+    fxaa.material.uniforms['resolution'].value.set(1 / (w * dpr), 1 / (h * dpr))
+  }
+  setFxaaRes(size.x, size.y)
+  composer.addPass(fxaa)
+
   return {
     composer,
     bloom,
     setSize(w, h) {
       composer.setSize(w, h)
       bloom.setSize(w * q.bloomScale, h * q.bloomScale)
+      setFxaaRes(w, h)
     },
     render() {
       composer.render()
@@ -59,6 +73,7 @@ export function createComposer(
       // alone owns ~11 render targets — leak on every tier switch otherwise.
       bloom.dispose()
       output.dispose()
+      fxaa.dispose()
       composer.dispose()
     },
   }
