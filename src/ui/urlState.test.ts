@@ -24,4 +24,10 @@ describe('buildUrl', () => {
     expect(url.match(/obj=/g)).toHaveLength(1)
     expect(url).toContain('obj=jupiter')
   })
+
+  it('writes and clears the overview scale flag', () => {
+    expect(buildUrl('', '/', '', 'sun', null, true)).toContain('scale=overview')
+    // leaving overview removes a stale flag
+    expect(buildUrl('?obj=sun&scale=overview', '/', '', 'sun', null, false)).not.toContain('scale=')
+  })
 })
