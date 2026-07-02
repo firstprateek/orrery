@@ -28,6 +28,14 @@ export interface BodyView {
   clouds?: THREE.Mesh
   /** World direction from the body toward the Sun (custom-shader bodies). */
   sunDir?: { value: THREE.Vector3 }
+  /** Shared uniforms for the analytic ring↔planet shadows (ringed bodies). */
+  ringShadow?: {
+    uSunDir: { value: THREE.Vector3 }
+    uCenter: { value: THREE.Vector3 }
+    uPlanetR: { value: number }
+    uInnerW: { value: number }
+    uOuterW: { value: number }
+  }
 }
 
 export class SolarSystem {
@@ -70,6 +78,7 @@ export class SolarSystem {
       if (def.ringInnerKm && def.ringOuterKm && def.ringTexture) {
         view.ring = this.makeRing(def, loader)
         group.add(view.ring)
+        this.wireRingShadows(view)
       }
       const atmo = ATMOSPHERES[def.id]
       if (atmo) {
@@ -172,6 +181,98 @@ export class SolarSystem {
     return ring
   }
 
+  /**
+   * Analytic mutual shadows for a ringed body, mirrored from math/ringShadow.ts
+   * (which pins the conventions with tests): the planet's shadow cylinder
+   * darkens the ring, and a sun-ray/ring-plane hit darkens the surface by the
+   * ring's alpha. Injected into the existing built-in materials so the
+   * logarithmic depth buffer keeps working untouched. Uniforms are shared and
+   * updated per frame in place().
+   */
+  private wireRingShadows(view: BodyView): void {
+    const ringShadow = {
+      uSunDir: { value: new THREE.Vector3(1, 0, 0) },
+      uCenter: { value: new THREE.Vector3() },
+      uPlanetR: { value: 1 },
+      uInnerW: { value: 1 },
+      uOuterW: { value: 2 },
+    }
+    view.ringShadow = ringShadow
+
+    const ringMat = view.ring!.material as THREE.MeshBasicMaterial
+    const ringTex = ringMat.map as THREE.Texture
+
+    const addWorldPos = (shader: THREE.WebGLProgramParametersWithUniforms) => {
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nvarying vec3 vOrrWPos;')
+        .replace(
+          '#include <begin_vertex>',
+          '#include <begin_vertex>\n  vOrrWPos = (modelMatrix * vec4(position, 1.0)).xyz;',
+        )
+    }
+
+    // Ring: darkened inside the planet's shadow cylinder (anti-sun side).
+    ringMat.onBeforeCompile = (shader) => {
+      shader.uniforms.uSunDir = ringShadow.uSunDir
+      shader.uniforms.uCenter = ringShadow.uCenter
+      shader.uniforms.uPlanetR = ringShadow.uPlanetR
+      addWorldPos(shader)
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          '#include <common>',
+          '#include <common>\nuniform vec3 uSunDir;\nuniform vec3 uCenter;\nuniform float uPlanetR;\nvarying vec3 vOrrWPos;',
+        )
+        .replace(
+          '#include <alphamap_fragment>',
+          `#include <alphamap_fragment>
+          {
+            vec3 toFrag = vOrrWPos - uCenter;
+            float along = dot(toFrag, uSunDir);
+            vec3 perp = toFrag - along * uSunDir;
+            if (along < 0.0 && dot(perp, perp) < uPlanetR * uPlanetR) diffuseColor.rgb *= 0.15;
+          }`,
+        )
+    }
+
+    // Surface: sun-ray vs ring-plane hit samples the ring alpha as a shadow.
+    // The ring plane passes through the centre with the body's pole as normal
+    // (constant: the group's orientation never changes after construction).
+    const pole = new THREE.Vector3(0, 1, 0).applyEuler(view.group.rotation)
+    const surfMat = view.mesh.material as THREE.MeshStandardMaterial
+    surfMat.onBeforeCompile = (shader) => {
+      shader.uniforms.uSunDirS = ringShadow.uSunDir
+      shader.uniforms.uCenterS = ringShadow.uCenter
+      shader.uniforms.uInnerW = ringShadow.uInnerW
+      shader.uniforms.uOuterW = ringShadow.uOuterW
+      shader.uniforms.uPoleS = { value: pole }
+      shader.uniforms.uRingTex = { value: ringTex }
+      addWorldPos(shader)
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          '#include <common>',
+          '#include <common>\nuniform vec3 uSunDirS;\nuniform vec3 uCenterS;\nuniform vec3 uPoleS;\nuniform float uInnerW;\nuniform float uOuterW;\nuniform sampler2D uRingTex;\nvarying vec3 vOrrWPos;',
+        )
+        .replace(
+          '#include <map_fragment>',
+          `#include <map_fragment>
+          {
+            float denomR = dot(uSunDirS, uPoleS);
+            if (abs(denomR) > 1e-6) {
+              float tR = dot(uCenterS - vOrrWPos, uPoleS) / denomR;
+              if (tR > 0.0) {
+                vec3 hitR = vOrrWPos + tR * uSunDirS - uCenterS;
+                float radR = length(hitR);
+                if (radR > uInnerW && radR < uOuterW) {
+                  float aR = texture2D(uRingTex, vec2((radR - uInnerW) / (uOuterW - uInnerW), 0.5)).a;
+                  diffuseColor.rgb *= 1.0 - aR * 0.85;
+                }
+              }
+            }
+          }`,
+        )
+    }
+  }
+
   /** Blended render radius (AU→units) of a body at scale blend (0=true, 1=visual). */
   renderRadius(def: BodyDef, blend: number): number {
     const auR = kmToAu(def.radiusKm)
@@ -218,6 +319,15 @@ export class SolarSystem {
       if (view.sunDir) {
         // Sun is BODIES[0], so its group position is already updated this frame.
         view.sunDir.value.copy(this.byId['sun'].group.position).sub(view.group.position).normalize()
+      }
+      if (view.ringShadow) {
+        const rs = view.ringShadow
+        rs.uSunDir.value.copy(this.byId['sun'].group.position).sub(view.group.position).normalize()
+        rs.uCenter.value.copy(view.group.position)
+        rs.uPlanetR.value = r
+        const ringScale = r / this.trueScale.radius(kmToAu(view.def.radiusKm))
+        rs.uInnerW.value = kmToAu(view.def.ringInnerKm!) * ringScale
+        rs.uOuterW.value = kmToAu(view.def.ringOuterKm!) * ringScale
       }
     }
 
