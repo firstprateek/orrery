@@ -1,5 +1,5 @@
 import type { SimClock } from '../sim/time'
-import { jdToDate, unixMsToJd } from '../config/constants'
+import { jdToDate } from '../config/constants'
 
 // Time controls: play/pause, a speed ladder (Julian days per real second), a
 // "now" reset, a human-readable date readout, and a draggable scrubber spanning
@@ -31,9 +31,9 @@ export class TimeBar {
     private readonly clock: SimClock,
     private readonly onChange: () => void,
   ) {
-    const nowJd = unixMsToJd(Date.now())
-    this.jdMin = nowJd - 100 * 365.25
-    this.jdMax = nowJd + 100 * 365.25
+    // Share the clock's window so the scrubber and the clamp always agree.
+    this.jdMin = clock.jdMin
+    this.jdMax = clock.jdMax
 
     const bar = document.createElement('div')
     bar.style.cssText =
@@ -89,7 +89,11 @@ export class TimeBar {
     this.scrub.setAttribute('aria-label', 'Scrub date')
     this.scrub.style.cssText = 'flex:1;min-width:120px;accent-color:#6f8bff;cursor:pointer'
     this.scrub.addEventListener('pointerdown', () => (this.dragging = true))
-    this.scrub.addEventListener('pointerup', () => (this.dragging = false))
+    // pointercancel/lostpointercapture too: a browser-claimed touch gesture must
+    // not leave the drag flag stuck (which would freeze the thumb forever).
+    for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+      this.scrub.addEventListener(ev, () => (this.dragging = false))
+    }
     this.scrub.addEventListener('input', () => {
       this.clock.playing = false
       this.clock.jd = this.jdMin + +this.scrub.value * (this.jdMax - this.jdMin)

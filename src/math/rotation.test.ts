@@ -39,4 +39,13 @@ describe('bodyRotationAngle', () => {
     expect(prograde).toBeLessThan(Math.PI)
     expect(retro).toBeGreaterThan(Math.PI)
   })
+
+  it('applies the prime-meridian offset W0 as the phase at the epoch', () => {
+    const w0 = 38.3213 // the Moon's W0
+    const angle = bodyRotationAngle(J2000_JD, 655.72, w0)
+    expect(angle).toBeCloseTo((w0 * Math.PI) / 180, 8)
+    // and the offset persists one full period later
+    const later = bodyRotationAngle(J2000_JD + 655.72 / 24, 655.72, w0)
+    expect(later).toBeCloseTo((w0 * Math.PI) / 180, 6)
+  })
 })
