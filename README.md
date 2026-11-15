@@ -20,7 +20,9 @@ A fresh visit opens on the whole system, then glides in to Earth. From there:
   the menu at the top left, or step through them with the ‹ › arrows beside it
   (`[` / `]` on the keyboard). The camera glides there and frames it.
 - **Look around and zoom.** Every body is explorable at true scale, from Jupiter's
-  bands to Phobos. The zoom panel at the bottom right shows how far you've
+  bands to Phobos. Up on screen is ecliptic north, so the planets' orbital plane
+  stays level as you drag around a body; dragging up or down tilts the view
+  until you look straight down on (or up at) the ecliptic. The zoom panel at the bottom right shows how far you've
   zoomed from the default view, with − / + buttons and *Reset*.
 - **See the whole system.** *Overview* compresses distances and enlarges the
   bodies so everything out to Neptune fits on one screen. Zooming far out
@@ -58,7 +60,8 @@ A fresh visit opens on the whole system, then glides in to Earth. From there:
   frame, so seasons, day and night and ring tilts match the date: at 12:00 UTC
   the Sun stands within a few degrees of the Greenwich meridian, and Saturn’s
   rings open to the Sun in 2017, go edge-on in 2025 and open the other way by
-  the 2030s. Earth follows astronomy-engine's precession and sidereal time; the
+  the 2030s. The camera's up vector is ecliptic north, so north is up on
+  screen as in textbook diagrams and the view never rolls. Earth follows astronomy-engine's precession and sidereal time; the
   Sun, the other planets, the Moon and Pluto use astronomy-engine's IAU
   rotation model (exact rates, pole drift, the Moon's libration terms); the
   other moons use their IAU pole and W at J2000, and those on approximate
