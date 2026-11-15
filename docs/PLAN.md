@@ -297,7 +297,8 @@ but only *used* in v2's surface mode; the MVP can spin planets on their tilted
 axis for visual life without needing the full observer-frame math.
 *(Update: the IAU pole RA/Dec + W + rate are now used for every body's group
 orientation and texture phase — see `src/math/orientation.ts`; Earth uses
-astronomy-engine's precession and sidereal time.)*
+astronomy-engine's precession and sidereal time, and the Sun, planets, Moon and
+Pluto astronomy-engine's RotationAxis — `src/sim/bodyAxes.ts`.)*
 
 ---
 

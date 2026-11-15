@@ -3,9 +3,12 @@ import * as THREE from 'three'
 import { BODIES, BODY_BY_ID } from '../config/bodies'
 import { DEG2RAD, RAD2DEG, unixMsToJd } from '../config/constants'
 import { OBLIQUITY_J2000 } from '../math/celestial'
-import { bodyBasis, dirToLonLat, faceLockedSpin, surfaceDir, type BodyBasis } from '../math/orientation'
+import { bodyBasis, dirToLonLat, faceLockedSpin, meshSpin, surfaceDir, textureU, type BodyBasis } from '../math/orientation'
 import { bodyRotationAngle } from '../math/rotation'
 import { computePositions } from '../sim/ephemeris'
+import { iauAxis } from '../sim/bodyAxes'
+import * as Astronomy from 'astronomy-engine'
+import { jdToDate } from '../config/constants'
 import type { Vec3 } from '../math/vec3'
 
 // The scene's orientation contract: world frame is ecliptic-J2000 with Z =
@@ -144,8 +147,12 @@ describe('tidally locked faces', () => {
     const jd = jdOf(iso)
     const p = computePositions(jd)
     const def = BODY_BY_ID[id]
-    const w = bodyRotationAngle(jd, def.rotationPeriodHours, def.meridianDeg)
-    const ll = dirToLonLat(basisOf(id), w, sub(p[def.parent!], p[id]))
+    // The renderer's path: astronomy-engine's IAU axis where it has one (the
+    // Moon), else the registry W0 + rate.
+    const axis = iauAxis(id, Astronomy.MakeTime(jdToDate(jd)))
+    const basis = axis ? axis.basis : basisOf(id)
+    const w = axis ? axis.w : bodyRotationAngle(jd, def.rotationPeriodHours, def.meridianDeg)
+    const ll = dirToLonLat(basis, w, sub(p[def.parent!], p[id]))
     return { lon: ll.lon * RAD2DEG, lat: ll.lat * RAD2DEG }
   }
 
@@ -190,5 +197,43 @@ describe('pole angle helpers', () => {
 
   it('Uranus’s pole lies almost in the ecliptic plane', () => {
     expect(Math.abs(basisOf('uranus').y.z)).toBeLessThan(Math.sin(10 * DEG2RAD))
+  })
+})
+
+describe('texture longitude layout', () => {
+  // One recognisable feature per map, at the texture u measured from the
+  // shipped image, against its IAU east longitude. Pins textureLon0Deg: the
+  // Galilean, Cassini and New Horizons maps are centred on 180°, the Solar
+  // System Scope and Voyager Uranian maps on 0°.
+  const features: Array<[id: string, feature: string, lonE: number, u: number]> = [
+    ['moon', 'Mare Crisium', 59, 0.66],
+    ['io', 'Pele', 104.7, 0.29],
+    ['europa', 'Pwyll', 89, 0.245],
+    ['ganymede', 'Osiris', 194, 0.535],
+    ['callisto', 'Valhalla', 304, 0.845],
+    ['titan', 'Xanadu', 260, 0.72],
+    ['rhea', 'trailing-hemisphere wisps', 90, 0.25],
+    ['iapetus', 'Cassini Regio (leading side)', 270, 0.75],
+    ['pluto', 'Sputnik Planitia', 175, 0.49],
+    ['titania', 'Ursula', 45.2, 0.625],
+    ['oberon', 'Hamlet', 44, 0.62],
+  ]
+
+  it.each(features)('%s: %s sits where its longitude says', (id, _f, lonE, u) => {
+    const got = textureU(lonE, BODY_BY_ID[id].textureLon0Deg)
+    const du = Math.abs(((got - u + 1.5) % 1) - 0.5)
+    expect(du).toBeLessThan(0.03)
+  })
+
+  it('meshSpin turns the map centre to W + L0', () => {
+    // Longitude λ is at mesh angle (λ − L0) from u = 0.5, so with spin W + L0
+    // it lands at W + λ, the IAU direction, for any map centre.
+    const w = 1.234
+    for (const l0 of [0, 180, 90]) {
+      const lon = 0.7
+      const meshAngle = meshSpin(w, l0) + (lon - l0 * DEG2RAD)
+      expect(Math.cos(meshAngle)).toBeCloseTo(Math.cos(w + lon), 12)
+      expect(Math.sin(meshAngle)).toBeCloseTo(Math.sin(w + lon), 12)
+    }
   })
 })

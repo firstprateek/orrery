@@ -12,6 +12,8 @@ import { DEG2RAD } from '../config/constants'
 // The sphere mesh then spins by W about +Y: three's SphereGeometry puts texture
 // longitude 0 at local +X and east longitudes toward −Z, i.e. Ry(W + λ)·X =
 // cos(W+λ)·Q + sin(W+λ)·(P × Q), exactly the IAU "W eastward from Q" rule.
+// That holds for maps centred on longitude 0; a map centred on L0 (many moon
+// mosaics use 180°) spins by W + L0 instead — see meshSpin().
 
 const COS_E = Math.cos(OBLIQUITY_J2000)
 const SIN_E = Math.sin(OBLIQUITY_J2000)
@@ -100,4 +102,19 @@ export function faceLockedSpin(basis: BodyBasis, dir: Vec3): number {
   const lx = basis.x.x * dir.x + basis.x.y * dir.y + basis.x.z * dir.z
   const lz = basis.z.x * dir.x + basis.z.y * dir.y + basis.z.z * dir.z
   return Math.atan2(-lz, lx)
+}
+
+/**
+ * Mesh rotation.y for IAU spin angle W (radians) on a texture whose centre
+ * column (u = 0.5) is east longitude `textureLon0Deg`: that column must land
+ * where longitude L0 belongs, at W + L0.
+ */
+export function meshSpin(w: number, textureLon0Deg = 0): number {
+  return w + textureLon0Deg * DEG2RAD
+}
+
+/** Texture u (0..1) of east longitude `lonDeg` on a map centred on `textureLon0Deg`. */
+export function textureU(lonDeg: number, textureLon0Deg = 0): number {
+  const u = 0.5 + (lonDeg - textureLon0Deg) / 360
+  return u - Math.floor(u)
 }

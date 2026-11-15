@@ -1,9 +1,11 @@
 import * as THREE from 'three'
+import * as Astronomy from 'astronomy-engine'
 import { BODIES, bodyFamily, type BodyDef } from '../config/bodies'
-import { kmToAu } from '../config/constants'
+import { kmToAu, jdToDate } from '../config/constants'
 import { bodyRotationAngle } from '../math/rotation'
-import { bodyBasis, faceLockedSpin, type BodyBasis } from '../math/orientation'
+import { bodyBasis, faceLockedSpin, meshSpin, type BodyBasis } from '../math/orientation'
 import { earthFixedBasis } from '../sim/earthRotation'
+import { iauAxis } from '../sim/bodyAxes'
 import { makeBelt } from '../math/belt'
 import { MAX_BELT } from './quality'
 import { ATMOSPHERES, createAtmosphere } from './Atmosphere'
@@ -52,6 +54,8 @@ export interface BodyView {
     uPlanetR: { value: number }
     uInnerW: { value: number }
     uOuterW: { value: number }
+    /** Ring-plane normal (the planet's pole), world frame. */
+    uPole: { value: THREE.Vector3 }
   }
 }
 
@@ -64,7 +68,8 @@ export class SolarSystem {
   private highlighted: string | null = null
   private readonly deferredTextures = new Map<string, () => void>()
   private readonly targets: PickTarget[]
-  /** Static IAU frame per body (ecliptic axes), for the face-lock spin. */
+  /** IAU frame per body (ecliptic axes); refreshed in rotate() for the bodies
+   * astronomy-engine orients, static (J2000) for the other moons. */
   private readonly bases: Record<string, BodyBasis> = {}
 
   constructor(
@@ -273,6 +278,7 @@ export class SolarSystem {
       uPlanetR: { value: 1 },
       uInnerW: { value: 1 },
       uOuterW: { value: 2 },
+      uPole: { value: new THREE.Vector3(0, 1, 0).applyQuaternion(view.group.quaternion) },
     }
     view.ringShadow = ringShadow
 
@@ -313,15 +319,14 @@ export class SolarSystem {
 
     // Surface: sun-ray vs ring-plane hit samples the ring alpha as a shadow.
     // The ring plane passes through the centre with the body's pole as normal
-    // (constant: the group's orientation never changes after construction).
-    const pole = new THREE.Vector3(0, 1, 0).applyQuaternion(view.group.quaternion)
+    // (kept current by rotate(), as the pole drifts slowly with the date).
     const surfMat = view.mesh.material as THREE.MeshStandardMaterial
     surfMat.onBeforeCompile = (shader) => {
       shader.uniforms.uSunDirS = ringShadow.uSunDir
       shader.uniforms.uCenterS = ringShadow.uCenter
       shader.uniforms.uInnerW = ringShadow.uInnerW
       shader.uniforms.uOuterW = ringShadow.uOuterW
-      shader.uniforms.uPoleS = { value: pole }
+      shader.uniforms.uPoleS = ringShadow.uPole
       shader.uniforms.uRingTex = { value: ringTex }
       addWorldPos(shader)
       shader.fragmentShader = shader.fragmentShader
@@ -445,12 +450,15 @@ export class SolarSystem {
     }
   }
 
-  /** Set axial rotation from the sim clock using real sidereal periods (so spin
-   * speed tracks the time controls). Earth takes its full orientation (precessed
-   * pole + sidereal time) from astronomy-engine; face-locked moons point
-   * longitude 0 at their parent using the true (AU) positions. The belt
-   * revolves slowly with the clock too. */
-  rotate(jd: number, positions?: Record<string, Vec3>): void {
+  /** Set axial rotation from the sim clock (so spin speed tracks the time
+   * controls). Earth takes its full orientation (precessed pole + sidereal time)
+   * from astronomy-engine; the Sun, planets, Moon and Pluto take their IAU pole
+   * and W from astronomy-engine's RotationAxis; face-locked moons point
+   * longitude 0 at their parent using the true (AU) positions; the remaining
+   * moons spin by their registry W0 + rate. `positions` is required so a stale
+   * caller cannot silently drop the face lock. The belt revolves with the clock. */
+  rotate(jd: number, positions: Readonly<Record<string, Vec3>>): void {
+    const time = Astronomy.MakeTime(jdToDate(jd))
     for (const view of this.views) {
       const def = view.def
       if (def.id === 'earth') {
@@ -461,16 +469,26 @@ export class SolarSystem {
         if (view.clouds) view.clouds.rotation.y = bodyRotationAngle(jd, -def.rotationPeriodHours * CLOUD_LAG_PERIODS)
         continue
       }
-      const parentPos = def.faceLocked && def.parent ? positions?.[def.parent] : undefined
-      const ownPos = positions?.[def.id]
-      view.mesh.rotation.y =
-        parentPos && ownPos
-          ? faceLockedSpin(this.bases[def.id], {
-              x: parentPos.x - ownPos.x,
-              y: parentPos.y - ownPos.y,
-              z: parentPos.z - ownPos.z,
-            })
-          : bodyRotationAngle(jd, def.rotationPeriodHours, def.meridianDeg)
+      let w: number
+      const axis = iauAxis(def.id, time)
+      if (axis) {
+        this.bases[def.id] = axis.basis
+        setGroupBasis(view.group, axis.basis)
+        if (view.ringShadow) view.ringShadow.uPole.value.set(axis.basis.y.x, axis.basis.y.y, axis.basis.y.z)
+        w = axis.w
+      } else {
+        const parentPos = def.faceLocked && def.parent ? positions[def.parent] : undefined
+        const ownPos = positions[def.id]
+        w =
+          parentPos && ownPos
+            ? faceLockedSpin(this.bases[def.id], {
+                x: parentPos.x - ownPos.x,
+                y: parentPos.y - ownPos.y,
+                z: parentPos.z - ownPos.z,
+              })
+            : bodyRotationAngle(jd, def.rotationPeriodHours, def.meridianDeg)
+      }
+      view.mesh.rotation.y = meshSpin(w, def.textureLon0Deg)
     }
     this.belt.rotation.z = bodyRotationAngle(jd, BELT_PERIOD_DAYS * 24)
   }
