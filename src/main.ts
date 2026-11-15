@@ -1,5 +1,6 @@
 import * as THREE from 'three'
-import { BODIES, BODY_BY_ID, type BodyDef } from './config/bodies'
+import { BODIES, BODY_BY_ID } from './config/bodies'
+import { bindTargetRadii, isTarget, targetDef, targetRenderRadius } from './config/targets'
 import { AU_KM, jdToDate, unixMsToJd } from './config/constants'
 import { computePositions } from './sim/ephemeris'
 import { SimClock } from './sim/time'
@@ -7,14 +8,17 @@ import { makeTrueScale, makeVisualScale } from './scene/scaleMapping'
 import { createRenderer } from './scene/Renderer'
 import { createComposer, supportsHdrComposer } from './scene/Composer'
 import { QUALITY, QUALITY_ORDER, SlowFrameGuard, defaultTier, resolveTier, type QualityTier } from './scene/quality'
-import { CameraRig, type FrameKind } from './scene/CameraRig'
+import { CameraRig } from './scene/CameraRig'
 import { SolarSystem } from './scene/SolarSystem'
 import { createSky } from './scene/Sky'
 import { createStarField } from './scene/StarField'
 import { FocusController } from './scene/FocusController'
 import { pickBody } from './scene/Picker'
+import type { FrameState, PickTarget, SceneLayer } from './scene/FrameState'
 import { smoothDamp } from './math/smoothDamp'
-import { Labels } from './ui/Labels'
+import { Labels, type PlacedLabel } from './ui/Labels'
+import { helpHtml } from './ui/help'
+import { ShowMenu } from './ui/ShowMenu'
 import { TimeBar } from './ui/TimeBar'
 import { readObjParam, readDateParam, readScaleParam, buildUrl, writeState } from './ui/urlState'
 
@@ -71,9 +75,13 @@ const loader = new THREE.TextureLoader()
 const solar = new SolarSystem(loader, trueScale, visualScale, renderer.capabilities.getMaxAnisotropy())
 scene.add(solar.group)
 solar.belt.count = quality.beltCount
+bindTargetRadii(solar)
 const sky = createSky(loader)
 scene.add(sky)
 
+// Kept as an explicit reference (perf() and quality changes use it): stars load
+// asynchronously, so searching the scene for "the" Points object could find a
+// layer's point cloud instead.
 let starField: THREE.Points | null = null
 createStarField(import.meta.env.BASE_URL, renderer.getPixelRatio())
   .then((sf) => {
@@ -108,7 +116,7 @@ clock.playing = !dateLinked
 let positions = computePositions(clock.jd)
 
 const requested = readObjParam()
-const startId = requested && BODY_BY_ID[requested] ? requested : 'earth'
+const startId = requested && isTarget(requested) ? requested : 'earth'
 const focus = new FocusController(startId, positions)
 
 // --- scale blend (0 = realistic/true, 1 = visual/poster) ---
@@ -198,6 +206,11 @@ scaleBtn.addEventListener('click', () => {
 })
 ui.appendChild(scaleBtn)
 
+// One shared menu for optional layers (sky guide, spacecraft…): each registers a
+// toggle with showMenu.register(). Hidden until something does.
+const showMenu = new ShowMenu(controlCss)
+ui.appendChild(showMenu.button)
+
 const qualitySel = document.createElement('select')
 qualitySel.setAttribute('aria-label', 'Graphics quality')
 qualitySel.title = 'Graphics quality (higher looks better, lower runs faster)'
@@ -243,21 +256,11 @@ helpBtn.style.cssText = controlCss + ';cursor:pointer;pointer-events:auto;min-wi
 const helpOverlay = document.createElement('div')
 helpOverlay.style.cssText =
   'position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(4,5,10,0.72);z-index:30;cursor:pointer'
-helpOverlay.innerHTML =
-  '<div style="background:#11131c;border:1px solid #2a2f44;border-radius:14px;padding:22px 28px;color:#cdd6ff;font:15px/2 system-ui;max-width:min(92vw,420px)">' +
-  '<b style="font-size:17px">Controls</b><br>' +
-  'Drag — look around<br>' +
-  'Scroll / pinch — zoom<br>' +
-  '<code>⌘/Ctrl +</code> / <code>−</code> — zoom in / out, <code>⌘/Ctrl 0</code> — reset<br>' +
-  'Click or tap a body — fly to it<br>' +
-  '<code>‹</code> <code>›</code> or <code>[</code> <code>]</code> — previous / next body<br>' +
-  'Overview — see the whole system (sizes exaggerated)<br>' +
-  'Time bar — play, speed up, or scrub through ±100 years<br>' +
-  'Share — copy a link to this exact view<br>' +
-  '<span style="color:#8892b8;font-size:13px">Zooming far out switches to Overview automatically.</span>' +
-  '</div>'
 const toggleHelp = () => {
-  helpOverlay.style.display = helpOverlay.style.display === 'none' ? 'flex' : 'none'
+  const open = helpOverlay.style.display === 'none'
+  // Rebuilt on open: features add their lines (help.ts) after start-up.
+  if (open) helpOverlay.innerHTML = helpHtml()
+  helpOverlay.style.display = open ? 'flex' : 'none'
 }
 helpBtn.addEventListener('click', toggleHelp)
 helpOverlay.addEventListener('click', toggleHelp)
@@ -290,20 +293,26 @@ renderer.domElement.addEventListener('pointerdown', () => setMoreOpen(false))
 qualitySel.addEventListener('change', () => setMoreOpen(false))
 shareBtn.addEventListener('click', () => setTimeout(() => setMoreOpen(false), 900))
 window.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && morePanel.style.display !== 'none') {
+  if (e.key !== 'Escape') return
+  if (morePanel.style.display !== 'none') {
     setMoreOpen(false)
     moreBtn.focus()
+  } else if (showMenu.open) {
+    showMenu.setOpen(false)
+    showMenu.button.focus()
   }
 })
 const narrow = window.matchMedia('(max-width: 640px)')
 function layoutToolbar(): void {
   if (narrow.matches) {
     morePanel.append(qualitySel, shareBtn)
+    showMenu.dockIn(morePanel) // its toggles go first in the ⋯ panel
     ui.insertBefore(moreBtn, helpBtn)
     for (const c of [qualitySel, shareBtn]) c.style.maxWidth = 'none'
   } else {
     setMoreOpen(false)
     moreBtn.remove()
+    showMenu.dockIn(null)
     ui.insertBefore(qualitySel, helpBtn)
     ui.insertBefore(shareBtn, helpBtn)
     for (const c of [qualitySel, shareBtn]) c.style.maxWidth = '44vw'
@@ -342,6 +351,7 @@ function applyQuality(tier: QualityTier, persist = true): void {
   if (starField) {
     ;(starField.material as THREE.ShaderMaterial).uniforms.uPixelRatio.value = renderer.getPixelRatio()
   }
+  for (const l of layers) l.setQuality?.(quality)
   if (qualitySel.value !== tier) qualitySel.value = tier
 }
 
@@ -465,9 +475,9 @@ function showHint(): void {
 // "1×" is the default framing of the focused body (or of the whole system when
 // the overview is centred on the Sun); Reset returns there.
 function zoomBaseDistance(): number {
-  const def = BODY_BY_ID[focus.targetId]
-  if (targetBlend > 0.5 && def.type === 'star') return systemFrameDistance()
-  return rig.frameDistance(solar.renderRadius(def, blend), kindOf(def))
+  const t = targetDef(focus.targetId)
+  if (targetBlend > 0.5 && t.frameKind === 'sun') return systemFrameDistance()
+  return rig.frameDistance(targetRenderRadius(t.id, blend), t.frameKind)
 }
 function userZoom(factor: number): void {
   pendingSystemFrame = false
@@ -566,19 +576,36 @@ rig.controls.addEventListener('controlstart', () => {
   cancelIntro()
 })
 
-const labels = new Labels(solar, (id) => flyTo(id))
+const labels = new Labels((id) => flyTo(id))
+labels.add(solar.labelSources())
+// Body labels shown on the last label update (layers keep their own labels clear).
+let placedLabels: PlacedLabel[] = []
+
+// --- scene layers ---
+// Things positioned alongside the bodies each frame (sky guide, spacecraft,
+// belts…). Each is one addLayer() call; tick() drives them all through one
+// FrameState, picking and labels pick up their targets and sources.
+const layers: SceneLayer[] = []
+function addLayer(layer: SceneLayer): void {
+  layers.push(layer)
+  const sources = layer.labelSources?.()
+  if (sources) labels.add(sources)
+  layer.setQuality?.(quality)
+}
+/** Every click/hover target: the bodies plus whatever layers add. */
+function pickTargets(): readonly PickTarget[] {
+  let all = solar.pickTargets()
+  for (const l of layers) {
+    const t = l.pickTargets?.()
+    if (t && t.length) all = all.concat(t)
+  }
+  return all
+}
 
 // --- focus / framing ---
 let fps = 0
 let msEma = 16
 let hoveredId: string | null = null
-
-function kindOf(def: BodyDef): FrameKind {
-  if (def.type === 'star') return 'sun'
-  if (def.ringOuterKm) return 'ringed'
-  if (def.type === 'moon') return def.radiusKm < 100 ? 'small' : 'moon'
-  return 'planet'
-}
 
 const jdToIso = () => jdToDate(clock.jd).toISOString()
 function syncUrl(): void {
@@ -589,12 +616,12 @@ function syncUrl(): void {
 }
 
 function updateFact(): void {
-  const def = BODY_BY_ID[focus.targetId]
-  factEl.innerHTML = `<b style="font-size:15px">${def.name}</b><br>${def.facts}`
+  const t = targetDef(focus.targetId)
+  factEl.innerHTML = `<b style="font-size:15px">${t.name}</b><br>${t.facts}`
 }
 
 function updateStats(): void {
-  const def = BODY_BY_ID[focus.targetId]
+  const def = targetDef(focus.targetId)
   // Render units only equal AU in true scale; in the overview the distance is
   // a compressed mapping, so don't present it as a physical number.
   let dist: string
@@ -609,37 +636,58 @@ function updateStats(): void {
     : `${def.name} · ${dist}`
 }
 
+/** Default swing from the sunward direction: a lit limb plus some night side. */
+const DEFAULT_SIDE = 0.55
+
 /**
- * Fly to a body. `side` swings the viewpoint round from the Sun's direction
- * (radians about the ecliptic pole) so the planet shows a lit limb and some
- * night side instead of a flat, fully lit disc.
+ * Direction (focus-relative, unnormalised) to view a target from. `side`
+ * swings the viewpoint round from the Sun's direction (radians about the
+ * ecliptic pole) so a planet shows a lit limb and some night side instead of a
+ * flat, fully lit disc; the +0.5 z lifts it a little above the ecliptic.
  */
-function flyTo(id: string, instant = false, side = 0.55, fromIntro = false): void {
-  if (!fromIntro) cancelIntro()
-  pendingSystemFrame = false
-  focus.setTarget(id)
-  if (instant) focus.snap(positions)
-  solar.ensureFamilyTextures(id) // deferred moon maps start when their system is visited
-  const def = BODY_BY_ID[id]
-  // Moons collapse onto their planet in the overview mapping — flying to one
-  // there would bury the camera inside the parent. Return to true scale first.
-  if (def.type === 'moon' && targetBlend > 0.5) {
-    targetBlend = 0
-    scaleBtn.textContent = 'Overview'
-  }
+function arrivalDir(id: string, side = DEFAULT_SIDE): { x: number; y: number; z: number } {
   const a = positions[id]
   const len = Math.hypot(a.x, a.y, a.z)
   const sunward =
     len < 1e-9 ? { x: 1, y: 0, z: 0.5 } : { x: -a.x / len, y: -a.y / len, z: -a.z / len + 0.5 }
   const cs = Math.cos(side)
   const sn = Math.sin(side)
-  const dir = { x: sunward.x * cs - sunward.y * sn, y: sunward.x * sn + sunward.y * cs, z: sunward.z }
-  const r = solar.renderRadius(def, blend)
-  rig.frameFrom(r, kindOf(def), dir, !instant)
+  return { x: sunward.x * cs - sunward.y * sn, y: sunward.x * sn + sunward.y * cs, z: sunward.z }
+}
+
+interface FlyOpts {
+  /** Jump there (no glide). */
+  instant?: boolean
+  /** Viewpoint swing for arrivalDir(); ignored when `dir` is given. */
+  side?: number
+  /** The opening glide is calling: don't cancel it. */
+  fromIntro?: boolean
+  /** Explicit view direction, overriding arrivalDir(). */
+  dir?: { x: number; y: number; z: number }
+}
+
+/** Fly to a target and frame it. */
+function flyTo(id: string, opts: FlyOpts = {}): void {
+  const instant = opts.instant ?? false
+  if (!opts.fromIntro) cancelIntro()
+  pendingSystemFrame = false
+  focus.setTarget(id)
+  if (instant) focus.snap(positions)
+  solar.ensureFamilyTextures(id) // deferred moon maps start when their system is visited
+  const t = targetDef(id)
+  // Moons collapse onto their planet in the overview mapping — flying to one
+  // there would bury the camera inside the parent. Return to true scale first.
+  if (t.body.type === 'moon' && targetBlend > 0.5) {
+    targetBlend = 0
+    scaleBtn.textContent = 'Overview'
+  }
+  const dir = opts.dir ?? arrivalDir(id, opts.side)
+  const r = targetRenderRadius(id, blend)
+  rig.frameFrom(r, t.frameKind, dir, !instant)
   prevFr = r
   if (selectEl.value !== id) selectEl.value = id
   // The Sun in the overview is the whole-system view, wherever you came from.
-  if (def.type === 'star' && targetBlend > 0.5 && !instant) pendingSystemFrame = true
+  if (t.frameKind === 'sun' && targetBlend > 0.5 && !instant) pendingSystemFrame = true
   syncUrl()
   updateFact()
   updateStats()
@@ -716,7 +764,7 @@ el.addEventListener('pointerup', (e) => {
   if (!moved && performance.now() - downT < 350) {
     toNdc(e.clientX, e.clientY, hoverNdc)
     // Fingers need a bigger target than a mouse cursor.
-    const id = pickBody(hoverNdc, rig.camera, solar, window.innerHeight, touchGesture ? 22 : 8)
+    const id = pickBody(hoverNdc, rig.camera, pickTargets(), window.innerHeight, touchGesture ? 22 : 8)
     if (id) flyTo(id)
   }
 })
@@ -771,7 +819,7 @@ function cancelIntro(): void {
 function startIntroTimer(ms: number): void {
   introTimer = window.setTimeout(() => {
     introTimer = 0
-    flyTo(startId, false, 1.15, true)
+    flyTo(startId, { side: 1.15, fromIntro: true })
     introToTrueScale = true
   }, ms)
 }
@@ -788,17 +836,36 @@ if (playIntro) {
   blend = targetBlend = 1
   scaleBtn.textContent = 'True scale'
   introRunning = true
-  flyTo('sun', true, 0.55, true)
+  flyTo('sun', { instant: true, fromIntro: true })
   void rig.controls.dollyTo(systemFrameDistance(), false)
   startIntroTimer(2000)
 } else {
-  flyTo(startId, true)
+  flyTo(startId, { instant: true })
   showHint()
 }
 
 // --- loop ---
 const timer = new THREE.Timer()
 let frame = 0
+
+// One FrameState, refilled every frame (no per-frame allocation) and passed to
+// every layer. Layers read it in update()/updateUi() and must not keep it.
+const frameState: FrameState = {
+  dt: 0,
+  jd: clock.jd,
+  positions,
+  focusAu: focus.focusAu,
+  focusId: focus.targetId,
+  blend,
+  targetBlend,
+  camera: rig.camera,
+  rigDistance: rig.distance,
+  introRunning,
+  travelFx: 0,
+  narrow: narrow.matches,
+  quality,
+  labels: placedLabels,
+}
 
 function tick(dtOverride?: number): void {
   let dt: number
@@ -824,7 +891,7 @@ function tick(dtOverride?: number): void {
   solar.rotate(clock.jd)
 
   // Keep the focused body framed as its render radius changes during a scale blend.
-  const fr = solar.renderRadius(BODY_BY_ID[focus.targetId], blend)
+  const fr = targetRenderRadius(focus.targetId, blend)
   if (fr !== prevFr) {
     if (prevFr > 0) rig.scaleDistance(fr / prevFr)
     rig.setClip(fr)
@@ -835,7 +902,7 @@ function tick(dtOverride?: number): void {
   }
 
   if (hoverPending) {
-    const id = pickBody(hoverNdc, rig.camera, solar, window.innerHeight)
+    const id = pickBody(hoverNdc, rig.camera, pickTargets(), window.innerHeight)
     if (id !== hoveredId) {
       hoveredId = id
       solar.setHighlight(id)
@@ -851,8 +918,8 @@ function tick(dtOverride?: number): void {
     scaleBtn.textContent = 'Overview'
   }
   if (introSettle && blend === 0) {
-    const def = BODY_BY_ID[focus.targetId]
-    void rig.controls.dollyTo(rig.frameDistance(solar.renderRadius(def, 0), kindOf(def)), true)
+    const t = targetDef(focus.targetId)
+    void rig.controls.dollyTo(rig.frameDistance(targetRenderRadius(t.id, 0), t.frameKind), true)
     endIntro() // shows the hint; the URL stays bare so a reload replays the glide
   }
 
@@ -877,8 +944,27 @@ function tick(dtOverride?: number): void {
   sky.position.copy(rig.camera.position)
   if (starField) starField.position.copy(rig.camera.position)
 
+  // Layers run after the bodies are placed AND the camera has moved, so they
+  // see the final camera and distance, and before the labels, so a label on a
+  // layer's object is projected where that object is drawn this frame.
+  const f = frameState
+  f.dt = dt
+  f.jd = clock.jd
+  f.positions = positions
+  f.focusAu = focusAu
+  f.focusId = focus.targetId
+  f.blend = blend
+  f.targetBlend = targetBlend
+  f.rigDistance = rig.distance
+  f.introRunning = introRunning
+  f.travelFx = 0
+  f.narrow = narrow.matches
+  f.quality = quality
+  f.labels = placedLabels // from the last label update (every other frame)
+  for (const l of layers) l.update(f)
+
   if (frame % 2 === 0) {
-    labels.update(solar, rig.camera, window.innerWidth, window.innerHeight, focus.targetId, hoveredId)
+    placedLabels = labels.update(rig.camera, window.innerWidth, window.innerHeight, focus.targetId, hoveredId)
   }
 
   // Asteroid-belt rocks are drawn far larger than real asteroids so they show
@@ -903,6 +989,7 @@ function tick(dtOverride?: number): void {
     updateStats()
     updateZoomPill()
     timeBar.refresh()
+    for (const l of layers) l.updateUi?.(frameState)
   }
 
   draw()
@@ -923,6 +1010,13 @@ if (import.meta.env.DEV) {
     scene,
     tick,
     flyTo,
+    arrivalDir,
+    showMenu,
+    layers,
+    addLayer,
+    get placedLabels() {
+      return placedLabels
+    },
     toggleScale: () => {
       targetBlend = targetBlend > 0.5 ? 0 : 1
     },
@@ -939,7 +1033,7 @@ if (import.meta.env.DEV) {
       const gl = renderer.getContext()
       const px = new Uint8Array(4)
       const sync = () => gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px)
-      const stars = scene.children.find((c) => c instanceof THREE.Points) as THREE.Points | undefined
+      const stars = starField
       const measure = (label: string, setup: () => void, restore: () => void) => {
         setup()
         draw()
