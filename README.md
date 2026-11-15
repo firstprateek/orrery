@@ -53,6 +53,13 @@ A fresh visit opens on the whole system, then glides in to Earth. From there:
   gives the Sun, planets, Moon and Galilean moons to about 1 arcminute. The other
   moons and the asteroid belt use a small two-body Kepler propagator. This is
   visualization-grade, not spacecraft-grade.
+- **Orientation.** Every body's spin axis and prime meridian come from the IAU
+  rotation elements (pole right ascension/declination and W), rotated into the
+  ecliptic frame, so seasons, day and night and ring tilts match the date: at
+  12:00 UTC the Sun stands within a few degrees of the Greenwich meridian, and Saturn’s rings
+  open to the Sun in 2017, go edge-on in 2025 and open the other way by the
+  2030s. Earth follows astronomy-engine's precession and sidereal time, and the
+  Moon keeps its near side toward Earth.
 - **Scale.** The solar system spans nearly nine orders of magnitude, from
   12 km-wide Deimos to Pluto 35 AU from the Sun. Positions stay in double precision and are made
   relative to the focused body before they reach the GPU (a "floating origin"),

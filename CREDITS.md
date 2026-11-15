@@ -47,6 +47,11 @@ Planet, Sun, Moon, and Galilean-moon positions are computed with
 Other moons use mean osculating Keplerian elements compiled from NASA/JPL fact
 sheets.
 
+Spin axes and prime meridians use the IAU Working Group on Cartographic
+Coordinates and Rotational Elements values (Archinal et al., *Celestial
+Mechanics and Dynamical Astronomy* 109, 2011 and 130, 2018). Earth's
+orientation (precession, nutation, sidereal time) comes from astronomy-engine.
+
 ## Libraries
 
 - [three.js](https://threejs.org) (MIT)

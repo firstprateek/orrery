@@ -1,7 +1,9 @@
 import * as THREE from 'three'
 import { BODIES, bodyFamily, type BodyDef } from '../config/bodies'
-import { kmToAu, DEG2RAD } from '../config/constants'
+import { kmToAu } from '../config/constants'
 import { bodyRotationAngle } from '../math/rotation'
+import { bodyBasis, faceLockedSpin, type BodyBasis } from '../math/orientation'
+import { earthFixedBasis } from '../sim/earthRotation'
 import { makeBelt } from '../math/belt'
 import { MAX_BELT } from './quality'
 import { ATMOSPHERES, createAtmosphere } from './Atmosphere'
@@ -11,9 +13,23 @@ import type { Vec3 } from '../math/vec3'
 import type { LabelSource, PickTarget } from './FrameState'
 
 // One sphere geometry shared by every body (scaled per-body) keeps the draw-call
-// budget tiny. Spin axis is local +Y; obliquity tilts the whole group.
+// budget tiny. Spin axis is local +Y; each body's group carries its IAU pole.
 const SHARED_SPHERE = new THREE.SphereGeometry(1, 64, 32)
 const TEXTURE_BASE = `${import.meta.env.BASE_URL}textures/`
+
+// Clouds turn once per 1.08 Earth days, i.e. they fall behind the surface by one
+// turn every 1/(1 − 1/1.08) = 13.5 days.
+const CLOUD_LAG_PERIODS = 13.5
+
+const _basisM = new THREE.Matrix4()
+const _bx = new THREE.Vector3()
+const _by = new THREE.Vector3()
+const _bz = new THREE.Vector3()
+/** Orient a group so its local X/Y/Z axes lie along the basis vectors. */
+function setGroupBasis(group: THREE.Object3D, b: BodyBasis): void {
+  _basisM.makeBasis(_bx.set(b.x.x, b.x.y, b.x.z), _by.set(b.y.x, b.y.y, b.y.z), _bz.set(b.z.x, b.z.y, b.z.z))
+  group.quaternion.setFromRotationMatrix(_basisM)
+}
 
 // Representative asteroid-belt orbital period (days) — the belt revolves slowly
 // with the clock like everything else (it's artistic, not per-rock Keplerian).
@@ -48,6 +64,8 @@ export class SolarSystem {
   private highlighted: string | null = null
   private readonly deferredTextures = new Map<string, () => void>()
   private readonly targets: PickTarget[]
+  /** Static IAU frame per body (ecliptic axes), for the face-lock spin. */
+  private readonly bases: Record<string, BodyBasis> = {}
 
   constructor(
     loader: THREE.TextureLoader,
@@ -58,11 +76,13 @@ export class SolarSystem {
     for (const def of BODIES) {
       const group = new THREE.Group()
       // World frame is ecliptic-J2000 with Z = ecliptic north; the sphere's spin
-      // pole is local +Y. Rx(π/2) stands the pole up to world +Z, and adding the
-      // obliquity tilts it away from ecliptic north by the correct angle (the
-      // in-plane azimuth of the tilt is a shared approximation; per-body IAU
-      // pole azimuths are a future refinement).
-      group.rotation.x = Math.PI / 2 + def.axialTiltDeg * DEG2RAD
+      // pole is local +Y. The group's axes are the body's IAU frame (pole, node
+      // of its equator, see math/orientation.ts), so the pole points the real
+      // way (Earth's at RA 0 / Dec 90 → ecliptic (0, sin ε, cos ε)) and the
+      // mesh's spin angle W lands longitude 0 where the IAU puts it.
+      const basis = bodyBasis(def.pole.raDeg, def.pole.decDeg)
+      this.bases[def.id] = basis
+      setGroupBasis(group, basis)
 
       let mesh: THREE.Mesh
       const view: BodyView = { def, group, mesh: undefined as unknown as THREE.Mesh }
@@ -294,7 +314,7 @@ export class SolarSystem {
     // Surface: sun-ray vs ring-plane hit samples the ring alpha as a shadow.
     // The ring plane passes through the centre with the body's pole as normal
     // (constant: the group's orientation never changes after construction).
-    const pole = new THREE.Vector3(0, 1, 0).applyEuler(view.group.rotation)
+    const pole = new THREE.Vector3(0, 1, 0).applyQuaternion(view.group.quaternion)
     const surfMat = view.mesh.material as THREE.MeshStandardMaterial
     surfMat.onBeforeCompile = (shader) => {
       shader.uniforms.uSunDirS = ringShadow.uSunDir
@@ -426,12 +446,31 @@ export class SolarSystem {
   }
 
   /** Set axial rotation from the sim clock using real sidereal periods (so spin
-   * speed tracks the time controls). The belt revolves slowly with the clock too. */
-  rotate(jd: number): void {
+   * speed tracks the time controls). Earth takes its full orientation (precessed
+   * pole + sidereal time) from astronomy-engine; face-locked moons point
+   * longitude 0 at their parent using the true (AU) positions. The belt
+   * revolves slowly with the clock too. */
+  rotate(jd: number, positions?: Record<string, Vec3>): void {
     for (const view of this.views) {
-      view.mesh.rotation.y = bodyRotationAngle(jd, view.def.rotationPeriodHours, view.def.meridianDeg)
-      // Clouds drift ~8% slower than the surface so weather visibly moves.
-      if (view.clouds) view.clouds.rotation.y = bodyRotationAngle(jd, view.def.rotationPeriodHours * 1.08)
+      const def = view.def
+      if (def.id === 'earth') {
+        setGroupBasis(view.group, earthFixedBasis(jd))
+        view.mesh.rotation.y = 0
+        // Clouds drift ~8% slower than the surface so weather visibly moves:
+        // relative to the (already spinning) group that is a slow backwards turn.
+        if (view.clouds) view.clouds.rotation.y = bodyRotationAngle(jd, -def.rotationPeriodHours * CLOUD_LAG_PERIODS)
+        continue
+      }
+      const parentPos = def.faceLocked && def.parent ? positions?.[def.parent] : undefined
+      const ownPos = positions?.[def.id]
+      view.mesh.rotation.y =
+        parentPos && ownPos
+          ? faceLockedSpin(this.bases[def.id], {
+              x: parentPos.x - ownPos.x,
+              y: parentPos.y - ownPos.y,
+              z: parentPos.z - ownPos.z,
+            })
+          : bodyRotationAngle(jd, def.rotationPeriodHours, def.meridianDeg)
     }
     this.belt.rotation.z = bodyRotationAngle(jd, BELT_PERIOD_DAYS * 24)
   }
