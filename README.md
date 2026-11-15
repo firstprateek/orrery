@@ -43,7 +43,7 @@ A fresh visit opens on the whole system, then glides in to Earth. From there:
 | | Mouse / trackpad | Touch | Keyboard |
 |---|---|---|---|
 | Look around | Drag | Drag with one finger | |
-| Zoom | Scroll, trackpad pinch, or − / + | Pinch, or − / + | `⌘ +` / `⌘ −` (or `+` / `−`), `⌘ 0` to reset |
+| Zoom | Scroll, trackpad pinch, or − / + | Pinch, or − / + | `⌘ +` / `⌘ −` (Ctrl on Windows/Linux, or plain `+` / `−`); `⌘ 0` to reset |
 | Fly to a body | Click it or its label, the menu, or ‹ › | Tap it or its label, or the menu | `[` / `]` previous / next body |
 | Help | `?` button | `?` button | `?` |
 

@@ -165,15 +165,16 @@ const navBtn = (label: string, title: string, delta: 1 | -1) => {
   const b = document.createElement('button')
   b.textContent = label
   b.title = title
-  b.setAttribute('aria-label', title)
+  b.setAttribute('aria-label', delta > 0 ? 'Next body' : 'Previous body')
+  b.setAttribute('aria-keyshortcuts', delta > 0 ? ']' : '[')
   b.className = 'navbtn'
   b.style.cssText = controlCss + ';cursor:pointer;pointer-events:auto;min-width:38px'
   b.addEventListener('click', () => stepBody(delta))
   return b
 }
-ui.appendChild(navBtn('‹', 'Previous body ( [ )', -1))
+ui.appendChild(navBtn('‹', 'Previous body  [', -1))
 ui.appendChild(selectEl)
-ui.appendChild(navBtn('›', 'Next body ( ] )', 1))
+ui.appendChild(navBtn('›', 'Next body  ]', 1))
 
 // Action-oriented label: the button says what clicking DOES, not a state name.
 const scaleBtn = document.createElement('button')
@@ -247,7 +248,7 @@ helpOverlay.innerHTML =
   '<b style="font-size:17px">Controls</b><br>' +
   'Drag — look around<br>' +
   'Scroll / pinch — zoom<br>' +
-  '<code>⌘ +</code> / <code>⌘ −</code> — zoom in / out, <code>⌘ 0</code> — reset<br>' +
+  '<code>⌘/Ctrl +</code> / <code>−</code> — zoom in / out, <code>⌘/Ctrl 0</code> — reset<br>' +
   'Click or tap a body — fly to it<br>' +
   '<code>‹</code> <code>›</code> or <code>[</code> <code>]</code> — previous / next body<br>' +
   'Overview — see the whole system (sizes exaggerated)<br>' +
@@ -366,23 +367,23 @@ zoomPill.style.cssText =
   'display:flex;align-items:center;gap:6px;pointer-events:auto;background:rgba(12,14,22,0.72);border:1px solid #232838;' +
   'border-radius:10px;padding:4px 6px;-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)'
 const pillBtnCss =
-  'background:#171a26;color:#cdd6ff;border:1px solid #2a2f44;border-radius:7px;padding:2px 9px;font:16px system-ui;cursor:pointer;min-width:32px'
+  'background:#171a26;color:#cdd6ff;border:1px solid #2a2f44;border-radius:7px;padding:2px 9px;font:16px system-ui;cursor:pointer;min-width:36px;min-height:34px'
 const zoomOutBtn = document.createElement('button')
 zoomOutBtn.textContent = '−'
-zoomOutBtn.title = 'Zoom out (⌘ −)'
+zoomOutBtn.title = 'Zoom out (⌘/Ctrl −)'
 zoomOutBtn.setAttribute('aria-label', 'Zoom out')
 zoomOutBtn.style.cssText = pillBtnCss
 const zoomLabel = document.createElement('span')
 zoomLabel.style.cssText = 'color:#cdd6ff;font:13px ui-monospace,monospace;min-width:64px;text-align:center'
-zoomLabel.setAttribute('aria-live', 'polite')
+zoomLabel.setAttribute('aria-label', 'Zoom level')
 const zoomInBtn = document.createElement('button')
 zoomInBtn.textContent = '+'
-zoomInBtn.title = 'Zoom in (⌘ +)'
+zoomInBtn.title = 'Zoom in (⌘/Ctrl +)'
 zoomInBtn.setAttribute('aria-label', 'Zoom in')
 zoomInBtn.style.cssText = pillBtnCss
 const zoomResetBtn = document.createElement('button')
 zoomResetBtn.textContent = 'Reset'
-zoomResetBtn.title = 'Back to the default view of this body (⌘ 0)'
+zoomResetBtn.title = 'Back to the default view of this body (⌘/Ctrl 0)'
 zoomResetBtn.style.cssText = pillBtnCss + ';font-size:13px;padding:4px 9px'
 zoomPill.append(zoomOutBtn, zoomLabel, zoomInBtn, zoomResetBtn)
 rightCol.appendChild(zoomPill)
@@ -483,10 +484,14 @@ function resetZoom(): void {
 const compact = (n: number) =>
   n >= 1e6 ? `${(n / 1e6).toFixed(n < 1e7 ? 1 : 0)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(n < 1e4 ? 1 : 0)}k` : n.toFixed(n < 10 ? 1 : 0)
 function updateZoomPill(): void {
-  // Destination distance, so the label answers a click immediately.
-  const z = zoomBaseDistance() / rig.destinationDistance
+  // Destination distance, so the label answers a click immediately. While the
+  // app itself is moving to a default view (Overview framing, opening glide),
+  // that view is 1× by definition.
+  const z = pendingSystemFrame || introRunning ? 1 : zoomBaseDistance() / rig.destinationDistance
   zoomLabel.textContent = z >= 0.95 ? `${compact(z)}×` : `1/${compact(1 / z)}×`
-  zoomResetBtn.style.display = Math.abs(Math.log(z)) > 0.1 ? '' : 'none'
+  const showReset = Math.abs(Math.log(z)) > 0.1
+  if (!showReset && document.activeElement === zoomResetBtn) zoomInBtn.focus()
+  zoomResetBtn.style.display = showReset ? '' : 'none'
 }
 const ZOOM_STEP = 1.6
 zoomInBtn.addEventListener('click', () => userZoom(1 / ZOOM_STEP))
@@ -498,12 +503,19 @@ window.addEventListener('keydown', (e) => {
   if (e.altKey) return
   const mod = e.metaKey || e.ctrlKey
   if (!mod && (e.target as HTMLElement | null)?.matches?.('input, select, textarea')) return
-  let handled = true
-  if (e.key === '=' || e.key === '+') userZoom(1 / ZOOM_STEP)
-  else if (e.key === '-' || e.key === '_') userZoom(ZOOM_STEP)
-  else if (mod && e.key === '0') resetZoom()
-  else handled = false
-  if (handled) e.preventDefault()
+  // Holding a key auto-repeats ~30×/s: use small steps so it glides, not jumps.
+  const step = e.repeat ? 1.12 : ZOOM_STEP
+  if (e.key === '=' || e.key === '+') {
+    userZoom(1 / step)
+    e.preventDefault()
+  } else if (e.key === '-' || e.key === '_') {
+    userZoom(step)
+    e.preventDefault()
+  } else if (mod && e.key === '0') {
+    // No preventDefault: the browser's own zoom reset still runs too, so ⌘0
+    // always gets a page back to 100% if it was ever page-zoomed.
+    resetZoom()
+  }
 })
 // A trackpad pinch arrives as a wheel event with ctrlKey. camera-controls turns
 // that into a lens zoom; catch it first (capture phase on window) and move the
@@ -514,10 +526,31 @@ window.addEventListener(
     if (!e.ctrlKey) return
     e.preventDefault()
     e.stopImmediatePropagation()
-    userZoom(Math.exp(THREE.MathUtils.clamp(e.deltaY, -50, 50) * 0.008))
+    if (gestureScale) return // Safari: the gesture events below drive the zoom
+    // Firefox on Windows/Linux reports ctrl+wheel in lines, not pixels.
+    const dy = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY
+    userZoom(Math.exp(THREE.MathUtils.clamp(dy, -50, 50) * 0.008))
   },
   { capture: true, passive: false },
 )
+// Safari sends trackpad pinch as non-standard gesture events (with a running
+// scale), not ctrl+wheel; without this it zooms the whole page instead.
+let gestureScale = 0
+type GestureEvt = Event & { scale: number }
+window.addEventListener('gesturestart', (e) => {
+  e.preventDefault()
+  gestureScale = (e as GestureEvt).scale || 1
+})
+window.addEventListener('gesturechange', (e) => {
+  e.preventDefault()
+  const s = (e as GestureEvt).scale
+  if (gestureScale && s > 0) userZoom(gestureScale / s)
+  gestureScale = s
+})
+window.addEventListener('gestureend', (e) => {
+  e.preventDefault()
+  gestureScale = 0
+})
 
 // camera-controls doesn't emit controlstart for the mouse wheel.
 renderer.domElement.addEventListener(
@@ -605,6 +638,8 @@ function flyTo(id: string, instant = false, side = 0.55, fromIntro = false): voi
   rig.frameFrom(r, kindOf(def), dir, !instant)
   prevFr = r
   if (selectEl.value !== id) selectEl.value = id
+  // The Sun in the overview is the whole-system view, wherever you came from.
+  if (def.type === 'star' && targetBlend > 0.5 && !instant) pendingSystemFrame = true
   syncUrl()
   updateFact()
   updateStats()
