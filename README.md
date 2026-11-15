@@ -10,7 +10,7 @@ on screen.
 
 [![CI](https://github.com/firstprateek/orrery/actions/workflows/ci.yml/badge.svg)](https://github.com/firstprateek/orrery/actions/workflows/ci.yml)
 
-[![Saturn in Orrery, rings open, on 1 October 2017](docs/screenshot.jpg)](https://firstprateek.github.io/orrery/?obj=saturn&date=2017-10-01T00:00:00.000Z)
+[![Saturn and its rings in Orrery](docs/screenshot.jpg)](https://firstprateek.github.io/orrery/?obj=saturn&date=2017-10-01T00:00:00.000Z)
 
 ## What you can do
 
@@ -26,9 +26,11 @@ on screen.
   returns to the present.
 - **Share a view.** *Share* copies a link to the body, exact moment and scale
   mode you're looking at, for example
-  [Saturn with its rings open in 2017](https://firstprateek.github.io/orrery/?obj=saturn&date=2017-10-01T00:00:00.000Z).
+  [Saturn on 1 October 2017](https://firstprateek.github.io/orrery/?obj=saturn&date=2017-10-01T00:00:00.000Z),
+  when its rings were near their widest (drag to tilt the view and see them).
 - **Trade looks for speed.** The quality menu picks between *Fast*, *Balanced*
-  and *Beautiful* (bloom and full Retina resolution). The choice is remembered.
+  and *Beautiful*: higher tiers add Sun bloom and render at a higher resolution.
+  The choice is remembered.
 
 ### Controls
 
@@ -45,7 +47,7 @@ on screen.
   gives the Sun, planets, Moon and Galilean moons to about 1 arcminute. The other
   moons and the asteroid belt use a small two-body Kepler propagator. This is
   visualization-grade, not spacecraft-grade.
-- **Scale.** The solar system spans about ten orders of magnitude, from
+- **Scale.** The solar system spans nearly nine orders of magnitude, from
   12 km-wide Deimos to Pluto 35 AU from the Sun. Positions stay in double precision and are made
   relative to the focused body before they reach the GPU (a "floating origin"),
   and a logarithmic depth buffer keeps near and far objects sorted, so you can
@@ -69,7 +71,7 @@ in [docs/PLAN.md](docs/PLAN.md).
 
 ## Run it locally
 
-Needs Node 22 or later.
+Needs Node 22.12+ or 24+.
 
 ```bash
 npm install
@@ -88,9 +90,10 @@ catalog are committed; `scripts/` holds the scripts that fetched them.
 
 ## Credits
 
-Planet, Sun, Moon, ring and Milky Way textures are by
+Planet (except Pluto), Sun, Moon, ring and Milky Way textures are by
 [Solar System Scope](https://www.solarsystemscope.com/textures/) (CC BY 4.0).
-Moon maps are by Björn Jónsson and NASA/JPL/USGS, star data is from the Yale
-Bright Star Catalog. Full attributions are in [CREDITS.md](CREDITS.md).
+Moon and Pluto maps are by Björn Jónsson, NASA/JPL/USGS, Cassini/SSI and
+NASA/JHUAPL/SwRI (New Horizons), and star data is from the Yale Bright Star
+Catalog. Full attributions are in [CREDITS.md](CREDITS.md).
 
 Code is MIT licensed ([LICENSE](LICENSE)).

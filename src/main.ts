@@ -299,16 +299,24 @@ function hintSeen(): boolean {
     return false
   }
 }
+let hint: HTMLDivElement | null = null
+const placeHint = () => {
+  if (hint) hint.style.top = `${ui.getBoundingClientRect().bottom + 12}px`
+}
 if (!hintSeen()) {
-  const hint = document.createElement('div')
-  hint.textContent = 'drag to look around · scroll or pinch to zoom · tap a planet or pick one above to fly there'
-  hint.style.cssText =
+  const h = document.createElement('div')
+  hint = h
+  h.textContent = 'drag to look around · scroll or pinch to zoom · tap a planet or pick one above to fly there'
+  h.style.cssText =
     'position:fixed;left:50%;transform:translateX(-50%);max-width:min(92vw,560px);text-align:center;' +
     'background:rgba(12,14,22,0.8);color:#cdd6ff;border:1px solid #2a2f44;border-radius:10px;padding:10px 16px;font:14px/1.5 system-ui;z-index:20;' +
     'transition:opacity 1s;cursor:pointer'
   const dismissHint = () => {
-    hint.style.opacity = '0'
-    setTimeout(() => hint.remove(), 1100)
+    h.style.opacity = '0'
+    setTimeout(() => {
+      h.remove()
+      hint = null
+    }, 1100)
     try {
       localStorage.setItem('orrery-hint-seen', '1')
     } catch {
@@ -316,12 +324,15 @@ if (!hintSeen()) {
     }
   }
   // Sit just under the toolbar, which wraps to two rows on phones.
-  hint.style.top = `${ui.getBoundingClientRect().bottom + 12}px`
-  hint.addEventListener('click', dismissHint)
+  placeHint()
+  h.addEventListener('click', dismissHint)
   renderer.domElement.addEventListener('pointerdown', dismissHint, { once: true })
   setTimeout(dismissHint, 12000)
-  document.body.appendChild(hint)
+  document.body.appendChild(h)
 }
+
+// Any manual drag or zoom during the Overview transition wins over the auto pull-back.
+rig.controls.addEventListener('controlstart', () => (pendingSystemFrame = false))
 
 const labels = new Labels(solar, (id) => flyTo(id))
 
@@ -405,6 +416,7 @@ window.addEventListener('resize', () => {
   if (composer) composer.setSize(window.innerWidth, window.innerHeight)
   rig.resize(window.innerWidth / window.innerHeight)
   layoutOverlays()
+  placeHint() // the toolbar may have (un)wrapped
 })
 
 document.addEventListener('visibilitychange', () => {
@@ -531,11 +543,12 @@ function tick(dtOverride?: number): void {
 
   if (pendingSystemFrame && blend === 1 && !focus.flying) {
     pendingSystemFrame = false
-    // Neptune's orbit maps to ~55 render units in the overview; fit that in the
-    // narrower of the two FOVs (portrait phones are width-limited).
+    // Neptune maps to ~55 and Pluto to ~59 render units in the overview. Fit a
+    // sphere of 70 (margin for the toolbar and time bar) in the narrower of
+    // the two FOVs; portrait phones are width-limited.
     const halfV = THREE.MathUtils.degToRad(rig.camera.fov / 2)
     const half = Math.min(halfV, Math.atan(Math.tan(halfV) * rig.camera.aspect))
-    void rig.controls.dollyTo(60 / Math.tan(half), true)
+    void rig.controls.dollyTo(70 / Math.sin(half), true)
   }
 
   rig.update(dt)
