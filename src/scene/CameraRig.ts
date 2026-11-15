@@ -16,6 +16,7 @@ export class CameraRig {
   readonly camera: THREE.PerspectiveCamera
   readonly controls: CameraControls
   private readonly target = new THREE.Vector3()
+  private readonly endSpherical = new THREE.Spherical()
 
   constructor(domElement: HTMLElement, aspect: number) {
     this.camera = new THREE.PerspectiveCamera(45, aspect, 1e-7, 1e4)
@@ -24,6 +25,17 @@ export class CameraRig {
     this.controls.smoothTime = 0.4 // matches the focus-glide so fly-to finishes together
     this.controls.draggingSmoothTime = 0.08
     this.controls.setTarget(0, 0, 0, false)
+    // Every gesture either orbits or moves the camera in/out — nothing pans the
+    // orbit target off the focused body (which left you circling empty space)
+    // and nothing changes the lens zoom (trackpad pinch did that by default, a
+    // hidden state the rest of the app never saw). Ctrl/pinch wheel is handled
+    // in main.ts as a dolly.
+    const A = CameraControls.ACTION
+    this.controls.mouseButtons.right = A.ROTATE
+    this.controls.mouseButtons.middle = A.DOLLY
+    this.controls.touches.two = A.TOUCH_DOLLY
+    this.controls.touches.three = A.NONE
+    this.controls.minZoom = this.controls.maxZoom = 1
     // A tilted 3/4 view of the ecliptic rather than a flat edge-on or top-down one.
     void this.controls.rotateTo(0.7, 1.1, false)
   }
@@ -43,6 +55,20 @@ export class CameraRig {
     const dist = this.frameDistance(renderRadius, kind)
     const m = Math.hypot(dir.x, dir.y, dir.z) || 1
     void this.controls.setLookAt((dir.x / m) * dist, (dir.y / m) * dist, (dir.z / m) * dist, 0, 0, 0, transition)
+  }
+
+  /**
+   * Zoom by a factor (<1 moves closer). Based on the destination distance, not
+   * the current one, so quick repeated steps compound instead of lagging.
+   */
+  zoomBy(factor: number): void {
+    const c = this.controls
+    void c.dollyTo(THREE.MathUtils.clamp(this.destinationDistance * factor, c.minDistance, c.maxDistance), true)
+  }
+
+  /** Where the current camera transition will end (controls.distance is the in-flight value). */
+  get destinationDistance(): number {
+    return this.controls.getSpherical(this.endSpherical, true).radius
   }
 
   /** Standard viewing distance for a body of this render radius. */

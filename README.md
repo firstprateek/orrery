@@ -16,10 +16,12 @@ on screen.
 
 A fresh visit opens on the whole system, then glides in to Earth. From there:
 
-- **Fly to any body.** Click or tap a planet or its label, or pick one from the
-  menu at the top left. The camera glides there and frames it.
+- **Travel between planets.** Click or tap a planet or its label, pick one from
+  the menu at the top left, or step through them with the ‹ › arrows beside it
+  (`[` / `]` on the keyboard). The camera glides there and frames it.
 - **Look around and zoom.** Every body is explorable at true scale, from Jupiter's
-  bands to Phobos.
+  bands to Phobos. The zoom panel at the bottom right shows how far you've
+  zoomed from the default view, with − / + buttons and *Reset*.
 - **See the whole system.** *Overview* compresses distances and enlarges the
   bodies so everything out to Neptune fits on one screen. Zooming far out
   switches to it automatically; *True scale* switches back.
@@ -41,8 +43,8 @@ A fresh visit opens on the whole system, then glides in to Earth. From there:
 | | Mouse / trackpad | Touch | Keyboard |
 |---|---|---|---|
 | Look around | Drag | Drag with one finger | |
-| Zoom | Scroll | Pinch | |
-| Fly to a body | Click it or its label | Tap it or its label | `[` / `]` previous / next body |
+| Zoom | Scroll, trackpad pinch, or − / + | Pinch, or − / + | `⌘ +` / `⌘ −` (Ctrl on Windows/Linux, or plain `+` / `−`); `⌘ 0` to reset |
+| Fly to a body | Click it or its label, the menu, or ‹ › | Tap it or its label, or the menu | `[` / `]` previous / next body |
 | Help | `?` button | `?` button | `?` |
 
 ## How it works

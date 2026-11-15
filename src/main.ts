@@ -154,7 +154,27 @@ selectEl.style.cssText = controlCss + ';pointer-events:auto'
     }
   }
 }
+// Previous / next body arrows around the menu: the visible way to hop between
+// planets (also [ and ] on the keyboard). Hidden on phones, where the menu
+// and tapping a planet do the job and the toolbar has no room.
+function stepBody(delta: 1 | -1): void {
+  const i = BODIES.findIndex((b) => b.id === focus.targetId)
+  flyTo(BODIES[(i + delta + BODIES.length) % BODIES.length].id)
+}
+const navBtn = (label: string, title: string, delta: 1 | -1) => {
+  const b = document.createElement('button')
+  b.textContent = label
+  b.title = title
+  b.setAttribute('aria-label', delta > 0 ? 'Next body' : 'Previous body')
+  b.setAttribute('aria-keyshortcuts', delta > 0 ? ']' : '[')
+  b.className = 'navbtn'
+  b.style.cssText = controlCss + ';cursor:pointer;pointer-events:auto;min-width:38px'
+  b.addEventListener('click', () => stepBody(delta))
+  return b
+}
+ui.appendChild(navBtn('‹', 'Previous body  [', -1))
 ui.appendChild(selectEl)
+ui.appendChild(navBtn('›', 'Next body  ]', 1))
 
 // Action-oriented label: the button says what clicking DOES, not a state name.
 const scaleBtn = document.createElement('button')
@@ -228,8 +248,9 @@ helpOverlay.innerHTML =
   '<b style="font-size:17px">Controls</b><br>' +
   'Drag — look around<br>' +
   'Scroll / pinch — zoom<br>' +
+  '<code>⌘/Ctrl +</code> / <code>−</code> — zoom in / out, <code>⌘/Ctrl 0</code> — reset<br>' +
   'Click or tap a body — fly to it<br>' +
-  '<code>[</code> / <code>]</code> — previous / next body<br>' +
+  '<code>‹</code> <code>›</code> or <code>[</code> <code>]</code> — previous / next body<br>' +
   'Overview — see the whole system (sizes exaggerated)<br>' +
   'Time bar — play, speed up, or scrub through ±100 years<br>' +
   'Share — copy a link to this exact view<br>' +
@@ -336,8 +357,38 @@ document.body.appendChild(hud)
 
 // Fact panel sits ABOVE the time bar's band so they never collide.
 const factEl = document.createElement('div')
+// Right column above the time bar: zoom pill on top, facts below it.
+const rightCol = document.createElement('div')
+rightCol.style.cssText =
+  'position:fixed;right:calc(14px + env(safe-area-inset-right));bottom:calc(84px + env(safe-area-inset-bottom));' +
+  'display:flex;flex-direction:column;align-items:flex-end;gap:8px;pointer-events:none;z-index:10'
+const zoomPill = document.createElement('div')
+zoomPill.style.cssText =
+  'display:flex;align-items:center;gap:6px;pointer-events:auto;background:rgba(12,14,22,0.72);border:1px solid #232838;' +
+  'border-radius:10px;padding:4px 6px;-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)'
+const pillBtnCss =
+  'background:#171a26;color:#cdd6ff;border:1px solid #2a2f44;border-radius:7px;padding:2px 9px;font:16px system-ui;cursor:pointer;min-width:36px;min-height:34px'
+const zoomOutBtn = document.createElement('button')
+zoomOutBtn.textContent = '−'
+zoomOutBtn.title = 'Zoom out (⌘/Ctrl −)'
+zoomOutBtn.setAttribute('aria-label', 'Zoom out')
+zoomOutBtn.style.cssText = pillBtnCss
+const zoomLabel = document.createElement('span')
+zoomLabel.style.cssText = 'color:#cdd6ff;font:13px ui-monospace,monospace;min-width:64px;text-align:center'
+zoomLabel.setAttribute('aria-label', 'Zoom level')
+const zoomInBtn = document.createElement('button')
+zoomInBtn.textContent = '+'
+zoomInBtn.title = 'Zoom in (⌘/Ctrl +)'
+zoomInBtn.setAttribute('aria-label', 'Zoom in')
+zoomInBtn.style.cssText = pillBtnCss
+const zoomResetBtn = document.createElement('button')
+zoomResetBtn.textContent = 'Reset'
+zoomResetBtn.title = 'Back to the default view of this body (⌘/Ctrl 0)'
+zoomResetBtn.style.cssText = pillBtnCss + ';font-size:13px;padding:4px 9px'
+zoomPill.append(zoomOutBtn, zoomLabel, zoomInBtn, zoomResetBtn)
+rightCol.appendChild(zoomPill)
 factEl.style.cssText =
-  'position:fixed;right:calc(14px + env(safe-area-inset-right));bottom:calc(84px + env(safe-area-inset-bottom));max-width:min(300px,44vw);' +
+  'max-width:min(300px,44vw);' +
   'color:#cdd6ff;font:13px/1.5 system-ui;text-align:right;text-shadow:0 1px 3px #000;pointer-events:none;z-index:10;' +
   // A soft backing keeps planet labels that drift behind it from muddling the text.
   'background:rgba(12,14,22,0.5);padding:8px 12px;border-radius:10px;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)'
@@ -348,9 +399,10 @@ const factStyle = document.createElement('style')
 // facts already name the body, so phones drop it (unless ?debug).
 factStyle.textContent =
   '@media (max-width: 640px){.fact{font-size:12px!important;line-height:1.4!important;max-width:62vw!important}' +
-  '.hud:not(.debug){display:none}}'
+  '.hud:not(.debug){display:none}.navbtn{display:none}}'
 document.head.appendChild(factStyle)
-document.body.appendChild(factEl)
+rightCol.appendChild(factEl)
+document.body.appendChild(rightCol)
 
 if (softwareRendering) {
   const warn = document.createElement('div')
@@ -381,7 +433,9 @@ function showHint(): void {
   hintShown = true
   const h = document.createElement('div')
   hint = h
-  h.textContent = 'drag to look around · scroll or pinch to zoom · tap a planet or pick one above to fly there'
+  h.textContent = narrow.matches
+    ? 'drag to look around · pinch to zoom · tap a planet or pick one from the menu to fly there'
+    : 'drag to look around · scroll or pinch to zoom · click a planet, or use ‹ › and the menu, to fly there'
   h.style.cssText =
     'position:fixed;left:0;right:0;margin:0 auto;width:max-content;max-width:min(92vw,560px);text-align:center;box-sizing:border-box;' +
     'background:rgba(12,14,22,0.8);color:#cdd6ff;border:1px solid #2a2f44;border-radius:10px;padding:10px 16px;font:14px/1.5 system-ui;z-index:20;' +
@@ -407,6 +461,97 @@ function showHint(): void {
 }
 
 // Any manual drag or zoom during the Overview transition wins over the auto pull-back.
+// --- zoom: pill, keyboard, trackpad pinch ---
+// "1×" is the default framing of the focused body (or of the whole system when
+// the overview is centred on the Sun); Reset returns there.
+function zoomBaseDistance(): number {
+  const def = BODY_BY_ID[focus.targetId]
+  if (targetBlend > 0.5 && def.type === 'star') return systemFrameDistance()
+  return rig.frameDistance(solar.renderRadius(def, blend), kindOf(def))
+}
+function userZoom(factor: number): void {
+  pendingSystemFrame = false
+  cancelIntro()
+  rig.zoomBy(factor)
+  updateZoomPill()
+}
+function resetZoom(): void {
+  pendingSystemFrame = false
+  cancelIntro()
+  void rig.controls.dollyTo(zoomBaseDistance(), true)
+  updateZoomPill()
+}
+const compact = (n: number) =>
+  n >= 1e6 ? `${(n / 1e6).toFixed(n < 1e7 ? 1 : 0)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(n < 1e4 ? 1 : 0)}k` : n.toFixed(n < 10 ? 1 : 0)
+function updateZoomPill(): void {
+  // Destination distance, so the label answers a click immediately. While the
+  // app itself is moving to a default view (Overview framing, opening glide),
+  // that view is 1× by definition.
+  const z = pendingSystemFrame || introRunning ? 1 : zoomBaseDistance() / rig.destinationDistance
+  zoomLabel.textContent = z >= 0.95 ? `${compact(z)}×` : `1/${compact(1 / z)}×`
+  const showReset = Math.abs(Math.log(z)) > 0.1
+  if (!showReset && document.activeElement === zoomResetBtn) zoomInBtn.focus()
+  zoomResetBtn.style.display = showReset ? '' : 'none'
+}
+const ZOOM_STEP = 1.6
+zoomInBtn.addEventListener('click', () => userZoom(1 / ZOOM_STEP))
+zoomOutBtn.addEventListener('click', () => userZoom(ZOOM_STEP))
+zoomResetBtn.addEventListener('click', resetZoom)
+// ⌘/Ctrl + and − zoom the scene instead of the page; ⌘/Ctrl 0 resets. Plain
+// + and − work too.
+window.addEventListener('keydown', (e) => {
+  if (e.altKey) return
+  const mod = e.metaKey || e.ctrlKey
+  if (!mod && (e.target as HTMLElement | null)?.matches?.('input, select, textarea')) return
+  // Holding a key auto-repeats ~30×/s: use small steps so it glides, not jumps.
+  const step = e.repeat ? 1.12 : ZOOM_STEP
+  if (e.key === '=' || e.key === '+') {
+    userZoom(1 / step)
+    e.preventDefault()
+  } else if (e.key === '-' || e.key === '_') {
+    userZoom(step)
+    e.preventDefault()
+  } else if (mod && e.key === '0') {
+    // No preventDefault: the browser's own zoom reset still runs too, so ⌘0
+    // always gets a page back to 100% if it was ever page-zoomed.
+    resetZoom()
+  }
+})
+// A trackpad pinch arrives as a wheel event with ctrlKey. camera-controls turns
+// that into a lens zoom; catch it first (capture phase on window) and move the
+// camera instead, like a scroll. preventDefault also stops the page zooming.
+window.addEventListener(
+  'wheel',
+  (e) => {
+    if (!e.ctrlKey) return
+    e.preventDefault()
+    e.stopImmediatePropagation()
+    if (gestureScale) return // Safari: the gesture events below drive the zoom
+    // Firefox on Windows/Linux reports ctrl+wheel in lines, not pixels.
+    const dy = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY
+    userZoom(Math.exp(THREE.MathUtils.clamp(dy, -50, 50) * 0.008))
+  },
+  { capture: true, passive: false },
+)
+// Safari sends trackpad pinch as non-standard gesture events (with a running
+// scale), not ctrl+wheel; without this it zooms the whole page instead.
+let gestureScale = 0
+type GestureEvt = Event & { scale: number }
+window.addEventListener('gesturestart', (e) => {
+  e.preventDefault()
+  gestureScale = (e as GestureEvt).scale || 1
+})
+window.addEventListener('gesturechange', (e) => {
+  e.preventDefault()
+  const s = (e as GestureEvt).scale
+  if (gestureScale && s > 0) userZoom(gestureScale / s)
+  gestureScale = s
+})
+window.addEventListener('gestureend', (e) => {
+  e.preventDefault()
+  gestureScale = 0
+})
+
 // camera-controls doesn't emit controlstart for the mouse wheel.
 renderer.domElement.addEventListener(
   'wheel',
@@ -493,6 +638,8 @@ function flyTo(id: string, instant = false, side = 0.55, fromIntro = false): voi
   rig.frameFrom(r, kindOf(def), dir, !instant)
   prevFr = r
   if (selectEl.value !== id) selectEl.value = id
+  // The Sun in the overview is the whole-system view, wherever you came from.
+  if (def.type === 'star' && targetBlend > 0.5 && !instant) pendingSystemFrame = true
   syncUrl()
   updateFact()
   updateStats()
@@ -504,11 +651,7 @@ window.addEventListener('keydown', (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return
   if ((e.target as HTMLElement | null)?.matches?.('input, select, textarea')) return
   if (e.key === '?') toggleHelp()
-  if (e.key === '[' || e.key === ']') {
-    const i = BODIES.findIndex((b) => b.id === focus.targetId)
-    const n = (i + (e.key === ']' ? 1 : BODIES.length - 1)) % BODIES.length
-    flyTo(BODIES[n].id)
-  }
+  if (e.key === '[' || e.key === ']') stepBody(e.key === ']' ? 1 : -1)
 })
 
 window.addEventListener('resize', () => {
@@ -595,7 +738,7 @@ const timeBar = new TimeBar(clock, syncUrl)
 function layoutOverlays(): void {
   const off = `calc(${timeBar.el.offsetHeight + 24}px + env(safe-area-inset-bottom))`
   hud.style.bottom = off
-  factEl.style.bottom = off
+  rightCol.style.bottom = off
 }
 layoutOverlays()
 
@@ -758,6 +901,7 @@ function tick(dtOverride?: number): void {
   // DOM writes are throttled — a per-frame text swap costs layout work.
   if (++frame % 12 === 0) {
     updateStats()
+    updateZoomPill()
     timeBar.refresh()
   }
 
