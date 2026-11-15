@@ -7,6 +7,13 @@ export type FrameKind = 'sun' | 'planet' | 'ringed' | 'moon' | 'small'
 CameraControls.install({ THREE })
 
 /**
+ * Floor for the near plane, in render units (AU at true scale): 1e-9 AU is
+ * about 150 m. Anything that needs a closer camera (spacecraft models) lowers
+ * it here, in one place; log depth keeps the near/far ratio safe either way.
+ */
+export const MIN_NEAR = 1e-9
+
+/**
  * Focus-and-orbit camera. Because the floating origin always keeps the focused
  * body at render (0,0,0), the rig only orbits the origin — focusing a new body
  * just rescopes the zoom range and near/far planes to that body's size. The
@@ -49,7 +56,7 @@ export class CameraRig {
   ): void {
     this.controls.minDistance = renderRadius * 1.02
     this.controls.maxDistance = 5000
-    this.camera.near = Math.max(renderRadius * 1e-3, 1e-9)
+    this.camera.near = Math.max(renderRadius * 1e-3, MIN_NEAR)
     this.camera.far = 1e4
     this.camera.updateProjectionMatrix()
     const dist = this.frameDistance(renderRadius, kind)
@@ -80,7 +87,7 @@ export class CameraRig {
 
   /** Update only near/far for a focused body of the given render radius. */
   setClip(renderRadius: number): void {
-    this.camera.near = Math.max(renderRadius * 1e-3, 1e-9)
+    this.camera.near = Math.max(renderRadius * 1e-3, MIN_NEAR)
     this.camera.far = 1e4
     this.camera.updateProjectionMatrix()
   }

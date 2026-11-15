@@ -1,100 +1,159 @@
 import * as THREE from 'three'
-import type { SolarSystem } from '../scene/SolarSystem'
+import type { LabelSource } from '../scene/FrameState'
 
 // Custom projected-DOM labels (not CSS2DRenderer): a fixed pool of <div>s moved
 // with translate3d (GPU-composited, no layout thrash). Decluttered each update
 // by priority + angular size + screen-space collision, throttled by the caller.
+//
+// Labels are a registry of sources (bodies today; spacecraft, belt regions and
+// others add theirs), so new layers add entries instead of editing this loop.
+// update() returns what it placed so later layers (the sky guide) can keep
+// their own labels out of the way.
 
 const OFFHIDE = 'translate3d(-9999px,-9999px,0)'
 const _v = new THREE.Vector3()
 
-interface Entry {
+/**
+ * Collision box around a label's anchor, in CSS px: two labels collide when
+ * their anchors are closer than this on both axes. Sized for a typical name.
+ */
+export const LABEL_BOX = { w: 92, h: 15 } as const
+
+/** A label that update() showed, at its anchor (the projected body centre). */
+export interface PlacedLabel {
   id: string
-  el: HTMLDivElement
-  tier: number
+  x: number
+  y: number
 }
 
-interface Cand {
-  e: Entry
+const STYLE_CSS: Record<LabelSource['style'], string> = {
+  body: 'color:#e7ecff;font:12px system-ui,sans-serif;text-shadow:0 1px 2px #000;',
+}
+
+interface Entry {
+  src: LabelSource
+  el: HTMLDivElement
+}
+
+/** Candidate for placement: one on-screen, not-too-small label. */
+export interface LabelCand {
+  id: string
   x: number
   y: number
   tier: number
+  /** Camera distance, the tie-break within a tier (nearer wins). */
   dist: number
+  /** Focused or hovered: always shown, whatever it overlaps. */
+  pinned: boolean
+}
+
+/** True when a label anchored at (x, y) would overlap one already placed. */
+export function collidesWithPlaced(placed: readonly { x: number; y: number }[], x: number, y: number): boolean {
+  return placed.some((q) => Math.abs(q.x - x) < LABEL_BOX.w && Math.abs(q.y - y) < LABEL_BOX.h)
+}
+
+/**
+ * Pure declutter: lower tier first, then nearer first; a label that collides
+ * with one already placed is dropped unless pinned. Returns the shown labels in
+ * placement order. Sorts `cands` in place.
+ */
+export function declutterLabels<C extends LabelCand>(cands: C[]): C[] {
+  cands.sort((a, b) => a.tier - b.tier || a.dist - b.dist)
+  const shown: C[] = []
+  for (const c of cands) {
+    if (!c.pinned && collidesWithPlaced(shown, c.x, c.y)) continue
+    shown.push(c)
+  }
+  return shown
+}
+
+interface Cand extends LabelCand {
+  e: Entry
 }
 
 export class Labels {
   private readonly entries: Entry[] = []
   private readonly container: HTMLDivElement
 
-  constructor(solar: SolarSystem, onSelect?: (id: string) => void) {
+  constructor(private readonly onSelect?: (id: string) => void) {
     this.container = document.createElement('div')
     this.container.style.cssText = 'position:fixed;inset:0;pointer-events:none;overflow:hidden;z-index:5'
-    for (const view of solar.views) {
-      const el = document.createElement('div')
-      el.textContent = view.def.name
-      // Labels are often the only visible trace of a body at true scale, so they
-      // are real click targets (padding grows the touch target beyond the text).
-      el.style.cssText =
-        'position:absolute;left:0;top:0;transform:' + OFFHIDE +
-        ';color:#e7ecff;font:12px system-ui,sans-serif;text-shadow:0 1px 2px #000;white-space:nowrap;will-change:transform;' +
-        'pointer-events:auto;cursor:pointer;padding:6px'
-      if (onSelect) {
-        el.addEventListener('pointerup', (e) => {
-          e.stopPropagation()
-          onSelect(view.def.id)
-        })
-      }
-      this.container.appendChild(el)
-      const tier = view.def.type === 'moon' ? 1 : 0
-      this.entries.push({ id: view.def.id, el, tier })
-    }
     document.body.appendChild(this.container)
   }
 
+  /** Register label sources. Order matters only as the final tie-break. */
+  add(sources: Iterable<LabelSource>): void {
+    for (const src of sources) {
+      const el = document.createElement('div')
+      el.textContent = src.text
+      // Labels are often the only visible trace of a body at true scale, so
+      // interactive ones are real click targets (padding grows the touch target
+      // beyond the text).
+      el.style.cssText =
+        'position:absolute;left:0;top:0;transform:' + OFFHIDE + ';' +
+        STYLE_CSS[src.style] +
+        'white-space:nowrap;will-change:transform;' +
+        (src.interactive ? 'pointer-events:auto;cursor:pointer;' : 'pointer-events:none;') +
+        'padding:6px'
+      const onSelect = this.onSelect
+      if (src.interactive && onSelect) {
+        el.addEventListener('pointerup', (e) => {
+          e.stopPropagation()
+          onSelect(src.id)
+        })
+      }
+      this.container.appendChild(el)
+      this.entries.push({ src, el })
+    }
+  }
+
   update(
-    solar: SolarSystem,
     camera: THREE.PerspectiveCamera,
     w: number,
     h: number,
     focusId: string,
     hoveredId: string | null,
-  ): void {
+  ): PlacedLabel[] {
     const fovRad = (camera.fov * Math.PI) / 180
     const worldToPx = h / (2 * Math.tan(fovRad / 2))
     const cands: Cand[] = []
 
     for (const e of this.entries) {
-      const view = solar.byId[e.id]
-      const p = view.group.position
+      const src = e.src
+      if (!src.visible()) {
+        e.el.style.transform = OFFHIDE
+        continue
+      }
+      const p = src.getPos()
       _v.copy(p).project(camera)
-      const pinned = e.id === focusId || e.id === hoveredId
+      const pinned = src.id === focusId || src.id === hoveredId
       if (_v.z > 1 || _v.z < -1) {
         e.el.style.transform = OFFHIDE
         continue
       }
       const dist = camera.position.distanceTo(p)
-      const radPx = (view.mesh.scale.x / dist) * worldToPx
-      if (e.tier > 0 && radPx < 2 && !pinned) {
+      const radPx = (src.getRadius() / dist) * worldToPx
+      if (src.tier > 0 && radPx < 2 && !pinned) {
         e.el.style.transform = OFFHIDE
         continue
       }
-      cands.push({ e, x: (_v.x * 0.5 + 0.5) * w, y: (-_v.y * 0.5 + 0.5) * h, tier: e.tier, dist })
+      cands.push({ e, id: src.id, x: (_v.x * 0.5 + 0.5) * w, y: (-_v.y * 0.5 + 0.5) * h, tier: src.tier, dist, pinned })
     }
 
-    cands.sort((a, b) => a.tier - b.tier || a.dist - b.dist)
-    const placed: { x: number; y: number }[] = []
+    const shown = declutterLabels(cands)
+    const shownSet = new Set(shown)
+    const placed: PlacedLabel[] = []
     for (const c of cands) {
-      const pinned = c.e.id === focusId || c.e.id === hoveredId
-      const collide = placed.some((q) => Math.abs(q.x - c.x) < 92 && Math.abs(q.y - c.y) < 15)
-      if (collide && !pinned) {
+      if (!shownSet.has(c)) {
         c.e.el.style.transform = OFFHIDE
         continue
       }
-      placed.push({ x: c.x, y: c.y })
+      placed.push({ id: c.id, x: c.x, y: c.y })
       // +2/-14 keeps the TEXT at the old +8/-8 spot after the 6px hit-padding.
       c.e.el.style.transform = `translate3d(${(c.x + 2).toFixed(1)}px,${(c.y - 14).toFixed(1)}px,0)`
-      c.e.el.style.opacity = pinned ? '1' : '0.72'
-      c.e.el.style.fontWeight = c.e.id === focusId ? '600' : '400'
+      c.e.el.style.opacity = c.pinned ? '1' : '0.72'
+      c.e.el.style.fontWeight = c.id === focusId ? '600' : '400'
     }
+    return placed
   }
 }

@@ -8,6 +8,7 @@ import { ATMOSPHERES, createAtmosphere } from './Atmosphere'
 import { createEarthMaterial, createClouds } from './EarthMaterial'
 import type { ScaleMapping } from './scaleMapping'
 import type { Vec3 } from '../math/vec3'
+import type { LabelSource, PickTarget } from './FrameState'
 
 // One sphere geometry shared by every body (scaled per-body) keeps the draw-call
 // budget tiny. Spin axis is local +Y; obliquity tilts the whole group.
@@ -46,6 +47,7 @@ export class SolarSystem {
   readonly belt: THREE.InstancedMesh
   private highlighted: string | null = null
   private readonly deferredTextures = new Map<string, () => void>()
+  private readonly targets: PickTarget[]
 
   constructor(
     loader: THREE.TextureLoader,
@@ -101,6 +103,37 @@ export class SolarSystem {
 
     this.belt = this.buildBelt()
     this.group.add(this.belt)
+
+    // Built once with live getters: picking runs on every hover frame.
+    this.targets = this.views.map((view) => ({
+      id: view.def.id,
+      pos: view.group.position,
+      get r() {
+        return view.mesh.scale.x
+      },
+      get visible() {
+        return view.group.visible
+      },
+    }))
+  }
+
+  /** Every body as a click/hover target (render-space spheres). */
+  pickTargets(): readonly PickTarget[] {
+    return this.targets
+  }
+
+  /** One label per body: planets and the Sun outrank moons in the declutter. */
+  labelSources(): LabelSource[] {
+    return this.views.map((view) => ({
+      id: view.def.id,
+      text: view.def.name,
+      getPos: () => view.group.position,
+      getRadius: () => view.mesh.scale.x,
+      tier: view.def.type === 'moon' ? 1 : 0,
+      style: 'body',
+      interactive: true,
+      visible: () => view.group.visible,
+    }))
   }
 
   private buildBelt(): THREE.InstancedMesh {
