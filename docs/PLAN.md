@@ -5,14 +5,12 @@ whole-system scale down to a single moon, click any body to inspect it, scrub
 time, toggle realistic vs. visible scale — all against one physically-correct
 shared night sky.
 
-> Direction chosen: **pragmatic core first** (ship a polished MVP in weeks,
-> then layer cinematic polish and/or scientific breadth as v2).
->
-> **Progress:** M0 (scale spike), M1 (real bodies), M2 (click-to-fly camera), M3
-> (time controls + scale toggle), and M4 parts 1–3 (HDR Sun bloom + instanced
-> asteroid belt + planetary atmospheres + accurate star field) are implemented
-> and verified — see `src/`. Remaining M4 (Saturn ring shadows, adaptive-quality
-> ladder) is the next pass.
+> **Historical document.** This is the original build plan, kept for its design
+> rationale (the coordinate-system contract, scale handling, accuracy contract).
+> All milestones it describes (M0–M4) have shipped, plus later passes for
+> correctness, rendering, mobile UX, Earth's night lights and clouds, moon
+> textures and Saturn ring shadows. File names and details below may have moved
+> on since; the code in `src/` is the source of truth.
 
 ---
 

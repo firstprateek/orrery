@@ -113,6 +113,8 @@ let blend = readScaleParam() ? 1 : 0
 let targetBlend = blend
 const blendVel = { value: 0 }
 let prevFr = 0
+// Set by the Overview button: frame the whole system once the scale blend settles.
+let pendingSystemFrame = false
 
 // --- UI ---
 // 16px font on form controls: anything smaller triggers iOS Safari's page zoom
@@ -158,6 +160,15 @@ scaleBtn.textContent = targetBlend > 0.5 ? 'True scale' : 'Overview'
 scaleBtn.addEventListener('click', () => {
   targetBlend = targetBlend > 0.5 ? 0 : 1
   scaleBtn.textContent = targetBlend > 0.5 ? 'True scale' : 'Overview'
+  // Switching the mapping alone leaves the camera framed on the current body,
+  // so "Overview" looked like it did nothing. Centre on the Sun and, once the
+  // blend settles, pull back far enough to see out to Neptune.
+  if (targetBlend > 0.5) {
+    flyTo('sun')
+    pendingSystemFrame = true
+  } else {
+    pendingSystemFrame = false
+  }
   syncUrl()
 })
 ui.appendChild(scaleBtn)
@@ -292,7 +303,7 @@ if (!hintSeen()) {
   const hint = document.createElement('div')
   hint.textContent = 'drag to look around · scroll or pinch to zoom · tap a planet or pick one above to fly there'
   hint.style.cssText =
-    'position:fixed;left:50%;top:calc(64px + env(safe-area-inset-top));transform:translateX(-50%);max-width:min(92vw,560px);text-align:center;' +
+    'position:fixed;left:50%;transform:translateX(-50%);max-width:min(92vw,560px);text-align:center;' +
     'background:rgba(12,14,22,0.8);color:#cdd6ff;border:1px solid #2a2f44;border-radius:10px;padding:10px 16px;font:14px/1.5 system-ui;z-index:20;' +
     'transition:opacity 1s;cursor:pointer'
   const dismissHint = () => {
@@ -304,6 +315,8 @@ if (!hintSeen()) {
       // fine — it'll just show again next visit
     }
   }
+  // Sit just under the toolbar, which wraps to two rows on phones.
+  hint.style.top = `${ui.getBoundingClientRect().bottom + 12}px`
   hint.addEventListener('click', dismissHint)
   renderer.domElement.addEventListener('pointerdown', dismissHint, { once: true })
   setTimeout(dismissHint, 12000)
@@ -350,6 +363,7 @@ function updateStats(): void {
 }
 
 function flyTo(id: string, instant = false): void {
+  pendingSystemFrame = false
   focus.setTarget(id)
   if (instant) focus.snap(positions)
   solar.ensureFamilyTextures(id) // deferred moon maps start when their system is visited
@@ -515,12 +529,23 @@ function tick(dtOverride?: number): void {
     hoverPending = false
   }
 
+  if (pendingSystemFrame && blend === 1 && !focus.flying) {
+    pendingSystemFrame = false
+    // Neptune's orbit maps to ~55 render units in the overview; fit that in the
+    // narrower of the two FOVs (portrait phones are width-limited).
+    const halfV = THREE.MathUtils.degToRad(rig.camera.fov / 2)
+    const half = Math.min(halfV, Math.atan(Math.tan(halfV) * rig.camera.aspect))
+    void rig.controls.dollyTo(60 / Math.tan(half), true)
+  }
+
   rig.update(dt)
 
   // Zooming far out at true scale used to show nothing (every body sub-pixel in
   // an empty starfield) — past ~6 render units (~6 AU of orbit distance) the
   // user clearly wants the system view, so engage the overview automatically.
-  if (targetBlend === 0 && !focus.flying && rig.distance > 6) {
+  // Wait for the blend to settle: mid-way back from the overview the camera is
+  // still far out, which would otherwise flip straight back to the overview.
+  if (targetBlend === 0 && blend === 0 && !focus.flying && rig.distance > 6) {
     targetBlend = 1
     scaleBtn.textContent = 'True scale'
     syncUrl()

@@ -2,8 +2,8 @@ import type { Vec3 } from '../math/vec3'
 
 // Layer 2 of the coordinate contract: map simulation units (AU) to render units.
 // The simulation always works in true AU; this layer decides how those map to
-// what the camera sees. M0 ships the true-scale (linear) mode only; the visual
-// (log-radial + log-size) mode arrives with the scale toggle in M3.
+// what the camera sees: true scale (linear) or the visual "overview" (power-law
+// compressed distances, enlarged bodies). main.ts blends between the two.
 
 export type ScaleMode = 'true' | 'visual'
 
