@@ -51,18 +51,16 @@ describe('body registry', () => {
     }
   })
 
-  it('encodes retrograde spin exactly once (tilt>90° XOR negative period)', () => {
-    // Venus/Uranus/Pluto: obliquity >90° already flips the pole — period must be
-    // positive or the two flips cancel to prograde. Triton: tilt ~0 + negative.
-    for (const id of ['venus', 'uranus', 'pluto', 'triton']) {
-      const b = BODY_BY_ID[id]
-      const tiltFlip = b.axialTiltDeg > 90
-      const periodFlip = b.rotationPeriodHours < 0
-      expect(tiltFlip !== periodFlip).toBe(true)
-    }
-    // And no body anywhere double-encodes it.
+  it('gives every body an IAU pole and every textured world a prime meridian', () => {
+    // Retrograde spin is encoded once, IAU-style: the pole stays the IAU north
+    // pole and the period goes negative (orientation.test checks that this
+    // reproduces each obliquity, including Venus’s 177° and Uranus’s 98°).
     for (const b of BODIES) {
-      expect(b.axialTiltDeg > 90 && b.rotationPeriodHours < 0).toBe(false)
+      expect(b.pole.decDeg).toBeGreaterThanOrEqual(-90)
+      expect(b.pole.decDeg).toBeLessThanOrEqual(90)
+      expect(b.pole.raDeg).toBeGreaterThanOrEqual(0)
+      expect(b.pole.raDeg).toBeLessThan(360)
+      if (b.texture && b.type !== 'moon') expect(b.meridianDeg, b.id).toBeDefined()
     }
   })
 
