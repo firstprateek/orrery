@@ -20,6 +20,17 @@ describe('targets', () => {
     expect(() => targetDef('nope')).toThrow()
   })
 
+  it('does not treat inherited object keys as targets (ids come from ?obj=)', () => {
+    for (const id of ['constructor', 'toString', '__proto__', 'hasOwnProperty', 'valueOf']) {
+      expect(isTarget(id)).toBe(false)
+      expect(() => targetDef(id)).toThrow()
+    }
+  })
+
+  it('marks only moons as true-scale-only', () => {
+    for (const b of BODIES) expect(targetDef(b.id).trueScaleOnly).toBe(b.type === 'moon')
+  })
+
   it('frames bodies by kind', () => {
     expect(kindOf(BODY_BY_ID.sun)).toBe('sun')
     expect(kindOf(BODY_BY_ID.saturn)).toBe('ringed')

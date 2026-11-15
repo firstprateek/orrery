@@ -19,6 +19,7 @@ import { smoothDamp } from './math/smoothDamp'
 import { Labels, type PlacedLabel } from './ui/Labels'
 import { helpHtml } from './ui/help'
 import { ShowMenu } from './ui/ShowMenu'
+import { isTextEntry } from './ui/keys'
 import { TimeBar } from './ui/TimeBar'
 import { readObjParam, readDateParam, readScaleParam, buildUrl, writeState } from './ui/urlState'
 
@@ -134,9 +135,12 @@ let pendingSystemFrame = false
 const controlCss =
   'background:#11131c;color:#cdd6ff;border:1px solid #2a2f44;border-radius:8px;padding:6px 10px;font:16px system-ui;max-width:44vw'
 const ui = document.createElement('div')
+// z-index above the first-run hint and the ⋯ panel (neither overlaps the
+// toolbar row itself): the Show popover lives inside the toolbar, for tab
+// order, and must draw over the hint that sits just below it.
 ui.style.cssText =
   'position:fixed;top:calc(10px + env(safe-area-inset-top));left:calc(10px + env(safe-area-inset-left));right:calc(10px + env(safe-area-inset-right));' +
-  'display:flex;gap:8px;align-items:center;flex-wrap:wrap;z-index:10;pointer-events:none'
+  'display:flex;gap:8px;align-items:center;flex-wrap:wrap;z-index:26;pointer-events:none'
 const selectEl = document.createElement('select')
 selectEl.setAttribute('aria-label', 'Fly to a body')
 selectEl.title = 'Fly to a planet or moon'
@@ -193,6 +197,7 @@ scaleBtn.addEventListener('click', () => {
   cancelIntro()
   targetBlend = targetBlend > 0.5 ? 0 : 1
   scaleBtn.textContent = targetBlend > 0.5 ? 'True scale' : 'Overview'
+  layoutToolbar() // the label's width changed
   // Switching the mapping alone leaves the camera framed on the current body,
   // so "Overview" looked like it did nothing. Centre on the Sun and, once the
   // blend settles, pull back far enough to see out to Neptune.
@@ -208,8 +213,20 @@ ui.appendChild(scaleBtn)
 
 // One shared menu for optional layers (sky guide, spacecraft…): each registers a
 // toggle with showMenu.register(). Hidden until something does.
-const showMenu = new ShowMenu(controlCss)
-ui.appendChild(showMenu.button)
+// Toolbar fold state (see layoutToolbar); null until the toolbar is first laid out.
+let toolbarFolded: boolean | null = null
+const showMenu = new ShowMenu(controlCss, {
+  // The help overlay is modal: its keys shouldn't flip layers underneath it.
+  shortcutsEnabled: () => helpOverlay.style.display === 'none',
+  // The Show button appearing can make the row overflow. Before the first
+  // layout (a layer registering during start-up) there is nothing to redo.
+  onVisibilityChange: () => {
+    if (toolbarFolded !== null) layoutToolbar()
+  },
+})
+// The popover is position:fixed, so it adds nothing to the row; it sits right
+// after its button so Tab moves from the button into the checkboxes.
+ui.append(showMenu.button, showMenu.popover)
 
 const qualitySel = document.createElement('select')
 qualitySel.setAttribute('aria-label', 'Graphics quality')
@@ -303,8 +320,32 @@ window.addEventListener('keydown', (e) => {
   }
 })
 const narrow = window.matchMedia('(max-width: 640px)')
+// Fold Quality and Share into ⋯ on phones, and also on wider screens whenever
+// the one-row desktop toolbar wouldn't fit (the Show button, once a layer
+// registers, makes it wrap at small-tablet / split-screen widths). The row's
+// width is re-measured whenever it is unfolded, so text changes (Overview /
+// True scale) are tracked.
+let desktopRowWidth = 0
+function toolbarRowWidth(): number {
+  let w = 0
+  let n = 0
+  for (const c of ui.children) {
+    const cw = (c as HTMLElement).getBoundingClientRect().width
+    if (cw > 0 && getComputedStyle(c).position !== 'fixed') {
+      w += cw
+      n++
+    }
+  }
+  return w + 8 * Math.max(0, n - 1) // flex gap
+}
 function layoutToolbar(): void {
-  if (narrow.matches) {
+  if (toolbarFolded === false) desktopRowWidth = toolbarRowWidth()
+  const fold = narrow.matches || ui.clientWidth < desktopRowWidth
+  // Unchanged: leave the DOM (and an open ⋯ panel) alone. Resize events fire
+  // often on phones (the browser's address bar), so this must be a no-op.
+  if (fold === toolbarFolded) return
+  toolbarFolded = fold
+  if (fold) {
     morePanel.append(qualitySel, shareBtn)
     showMenu.dockIn(morePanel) // its toggles go first in the ⋯ panel
     ui.insertBefore(moreBtn, helpBtn)
@@ -316,14 +357,21 @@ function layoutToolbar(): void {
     ui.insertBefore(qualitySel, helpBtn)
     ui.insertBefore(shareBtn, helpBtn)
     for (const c of [qualitySel, shareBtn]) c.style.maxWidth = '44vw'
+    // Check the unfolded row actually fits; fold again if not.
+    desktopRowWidth = toolbarRowWidth()
+    layoutToolbar()
   }
 }
+document.body.appendChild(ui) // before layoutToolbar(): it measures the row
 layoutToolbar()
 narrow.addEventListener('change', () => {
   layoutToolbar()
   placeHint()
 })
-document.body.appendChild(ui)
+window.addEventListener('resize', () => {
+  layoutToolbar()
+  placeHint()
+})
 
 function applyQuality(tier: QualityTier, persist = true): void {
   quality = QUALITY[tier]
@@ -512,7 +560,7 @@ zoomResetBtn.addEventListener('click', resetZoom)
 window.addEventListener('keydown', (e) => {
   if (e.altKey) return
   const mod = e.metaKey || e.ctrlKey
-  if (!mod && (e.target as HTMLElement | null)?.matches?.('input, select, textarea')) return
+  if (!mod && isTextEntry(e.target)) return
   // Holding a key auto-repeats ~30×/s: use small steps so it glides, not jumps.
   const step = e.repeat ? 1.12 : ZOOM_STEP
   if (e.key === '=' || e.key === '+') {
@@ -677,7 +725,7 @@ function flyTo(id: string, opts: FlyOpts = {}): void {
   const t = targetDef(id)
   // Moons collapse onto their planet in the overview mapping — flying to one
   // there would bury the camera inside the parent. Return to true scale first.
-  if (t.body.type === 'moon' && targetBlend > 0.5) {
+  if (t.trueScaleOnly && targetBlend > 0.5) {
     targetBlend = 0
     scaleBtn.textContent = 'Overview'
   }
@@ -697,7 +745,7 @@ selectEl.addEventListener('change', () => flyTo(selectEl.value))
 
 window.addEventListener('keydown', (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return
-  if ((e.target as HTMLElement | null)?.matches?.('input, select, textarea')) return
+  if (isTextEntry(e.target)) return
   if (e.key === '?') toggleHelp()
   if (e.key === '[' || e.key === ']') stepBody(e.key === ']' ? 1 : -1)
 })

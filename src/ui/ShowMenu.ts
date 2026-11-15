@@ -4,6 +4,8 @@
 // button, on phones its rows sit inside the ⋯ panel. Choices persist per key.
 // With nothing registered the button and section stay hidden.
 
+import { isTextEntry, shortcutProblem } from './keys'
+
 const STORAGE_PREFIX = 'orrery-show-'
 
 /** Minimal Storage surface, so persistence is testable without a DOM. */
@@ -38,6 +40,13 @@ function safeLocalStorage(): PrefStore | null {
   }
 }
 
+export interface ShowMenuOptions {
+  /** False while something modal (the help overlay) should swallow toggle shortcuts. */
+  shortcutsEnabled?: () => boolean
+  /** Called when the toolbar button appears or disappears (the toolbar may need re-laying out). */
+  onVisibilityChange?: () => void
+}
+
 export interface ShowOptions {
   /** Single-key keyboard shortcut (no modifiers), shown beside the label. */
   shortcut?: string
@@ -57,14 +66,19 @@ export class ShowMenu {
   readonly button: HTMLButtonElement
   /** Heading plus rows: lives in the popover (desktop) or the ⋯ panel (phones). */
   readonly section: HTMLDivElement
-  private readonly popover: HTMLDivElement
+  /**
+   * Desktop popover. Insert it in the DOM straight after `button` so Tab goes
+   * from the button into its checkboxes, not to the end of the page.
+   */
+  readonly popover: HTMLDivElement
   private readonly rows: HTMLDivElement
   private readonly heading: HTMLDivElement
   private readonly entries: Entry[] = []
   private readonly store = safeLocalStorage()
+  private readonly shortcuts = new Set<string>()
   private inPanel = false
 
-  constructor(controlCss: string) {
+  constructor(controlCss: string, private readonly opts: ShowMenuOptions = {}) {
     this.button = document.createElement('button')
     this.button.textContent = 'Show'
     this.button.title = 'Choose what to show in the sky'
@@ -87,10 +101,9 @@ export class ShowMenu {
     this.popover.setAttribute('aria-label', 'Show')
     this.popover.style.cssText =
       'position:fixed;display:none;flex-direction:column;gap:8px;min-width:200px;' +
-      'background:rgba(12,14,22,0.92);border:1px solid #2a2f44;border-radius:12px;padding:10px;z-index:25'
+      'background:rgba(12,14,22,0.92);border:1px solid #2a2f44;border-radius:12px;padding:10px;pointer-events:auto'
     this.popover.appendChild(this.section)
     this.button.setAttribute('aria-controls', this.popover.id)
-    document.body.appendChild(this.popover)
 
     this.button.addEventListener('click', () => this.setOpen(!this.open))
     // Any press outside the popover closes it (the toolbar button toggles).
@@ -98,12 +111,27 @@ export class ShowMenu {
       const t = e.target as Node | null
       if (this.open && t && !this.popover.contains(t) && !this.button.contains(t)) this.setOpen(false)
     })
+    // Tabbing (or Shift-Tabbing) out of the button + popover pair closes it, so
+    // it doesn't float over the scene while focus is elsewhere. A null
+    // relatedTarget (a click on something unfocusable) is left to pointerdown.
+    const onFocusOut = (e: FocusEvent) => {
+      const to = e.relatedTarget as Node | null
+      if (this.open && to && !this.popover.contains(to) && !this.button.contains(to)) this.setOpen(false)
+    }
+    this.button.addEventListener('focusout', onFocusOut)
+    this.popover.addEventListener('focusout', onFocusOut)
     window.addEventListener('keydown', (e) => {
+      // Auto-repeat would strobe the layer while the key is held.
+      if (e.repeat || e.defaultPrevented) return
       if (e.metaKey || e.ctrlKey || e.altKey) return
-      if ((e.target as HTMLElement | null)?.matches?.('input, select, textarea')) return
+      if (isTextEntry(e.target)) return
+      if (this.opts.shortcutsEnabled && !this.opts.shortcutsEnabled()) return
       const key = e.key.toLowerCase()
       for (const en of this.entries) {
-        if (en.input.dataset.shortcut === key) this.apply(en, !en.get())
+        if (en.input.dataset.shortcut === key) {
+          this.apply(en, !en.get())
+          e.preventDefault()
+        }
       }
     })
   }
@@ -125,10 +153,23 @@ export class ShowMenu {
     text.textContent = label
     text.style.flex = '1'
     row.append(input, text)
-    if (opts.shortcut) {
-      input.dataset.shortcut = opts.shortcut.toLowerCase()
+    let shortcut = opts.shortcut
+    if (shortcut) {
+      // A clash would fire two actions per key press. Fail loudly in dev; in a
+      // production build drop the shortcut rather than break start-up.
+      const problem = shortcutProblem(shortcut, this.shortcuts)
+      if (problem && import.meta.env.DEV) throw new Error(`ShowMenu '${label}': ${problem}`)
+      if (problem) {
+        console.warn(`ShowMenu '${label}': ${problem}; shortcut dropped`)
+        shortcut = undefined
+      }
+    }
+    if (shortcut) {
+      this.shortcuts.add(shortcut.toLowerCase())
+      input.dataset.shortcut = shortcut.toLowerCase()
+      input.setAttribute('aria-keyshortcuts', shortcut.toUpperCase())
       const kbd = document.createElement('kbd')
-      kbd.textContent = opts.shortcut.toUpperCase()
+      kbd.textContent = shortcut.toUpperCase()
       kbd.style.cssText = 'color:#8892b8;font:12px ui-monospace,monospace;border:1px solid #2a2f44;border-radius:4px;padding:0 5px'
       row.appendChild(kbd)
     }
@@ -186,6 +227,9 @@ export class ShowMenu {
   private syncVisibility(): void {
     const any = this.entries.length > 0
     this.section.style.display = any ? 'flex' : 'none'
-    this.button.style.display = any && !this.inPanel ? '' : 'none'
+    const shown = any && !this.inPanel
+    const changed = (this.button.style.display !== 'none') !== shown
+    this.button.style.display = shown ? '' : 'none'
+    if (changed) this.opts.onVisibilityChange?.()
   }
 }
