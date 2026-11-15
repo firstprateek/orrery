@@ -39,7 +39,7 @@ export class TimeBar {
 
     const bar = document.createElement('div')
     bar.style.cssText =
-      'position:fixed;bottom:calc(10px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:center;' +
+      'position:fixed;bottom:calc(10px + env(safe-area-inset-bottom));left:0;right:0;margin:0 auto;width:max-content;display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:center;' +
       'background:rgba(12,14,22,0.72);border:1px solid #232838;border-radius:12px;padding:8px 12px;' +
       '-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);z-index:10;max-width:min(720px,94vw)'
 

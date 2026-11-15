@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { QUALITY, QUALITY_ORDER, MAX_BELT, resolveTier } from './quality'
+import { QUALITY, QUALITY_ORDER, MAX_BELT, resolveTier, defaultTier, SlowFrameGuard } from './quality'
 
 describe('quality tiers', () => {
   it('orders performance → quality → highest by increasing cost', () => {
@@ -27,6 +27,23 @@ describe('quality tiers', () => {
     expect(resolveTier('bogus')).toBe('performance')
     expect(resolveTier('quality')).toBe('quality')
     expect(resolveTier('highest')).toBe('highest')
+    expect(resolveTier('performance', 'quality')).toBe('performance')
+    expect(resolveTier(null, 'quality')).toBe('quality')
+  })
+
+  it('defaults new visitors to Medium only when the GPU can run bloom', () => {
+    expect(defaultTier({ softwareRendering: false, hdrOk: true })).toBe('quality')
+    expect(defaultTier({ softwareRendering: true, hdrOk: true })).toBe('performance')
+    expect(defaultTier({ softwareRendering: false, hdrOk: false })).toBe('performance')
+  })
+
+  it('falls back only after sustained slow frames', () => {
+    const g = new SlowFrameGuard(30, 5)
+    // Alternating slow/fast frames never accumulate.
+    for (let i = 0; i < 50; i++) expect(g.push(i % 2 ? 40 : 10)).toBe(false)
+    const h = new SlowFrameGuard(30, 5)
+    const hits = [40, 40, 40, 40, 40].map((ms) => h.push(ms))
+    expect(hits).toEqual([false, false, false, false, true])
   })
 
   it('never multisamples a float target (the ~0fps root cause) and keeps Performance composer-free', () => {
