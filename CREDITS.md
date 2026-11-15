@@ -9,6 +9,10 @@ under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 > Textures by Solar System Scope (solarsystemscope.com), developed by INOVE,
 > licensed under CC BY 4.0.
 
+The Milky Way panorama is drawn in galactic coordinates; Orrery rotates it into
+the J2000 ecliptic frame (galactic → equatorial with the IAU/Hipparcos matrix,
+then by the obliquity) so it lines up with the catalogue stars.
+
 **Io, Europa, Ganymede, Callisto** — global color maps created by **Björn Jónsson**
 (https://bjj.mmedia.is/), from NASA Galileo SSI / Voyager data. Used with the
 author's stated permission (attribution requested).

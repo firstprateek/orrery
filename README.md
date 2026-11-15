@@ -62,7 +62,8 @@ A fresh visit opens on the whole system, then glides in to Earth. From there:
 - **One shared sky.** Stellar parallax across the whole solar system is under
   a pixel, so there's one J2000 sky for every viewpoint: 9,096 Yale Bright Star
   Catalog stars, sized by magnitude and coloured by temperature, over a
-  Milky Way map. What changes between viewpoints is the Sun's direction and size
+  Milky Way map rotated from galactic coordinates into the same frame, so the
+  bulge sits in Sagittarius and the painted stars line up. What changes between viewpoints is the Sun's direction and size
   and where the other bodies are.
 - **Rendering.** [three.js](https://threejs.org) on WebGL2: HDR bloom on the
   Sun, atmosphere rims with a twilight band, Earth's city lights and moving
