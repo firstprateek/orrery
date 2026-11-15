@@ -162,6 +162,7 @@ scaleBtn.style.cssText = controlCss + ';cursor:pointer;pointer-events:auto'
 scaleBtn.title = 'Toggle between true scale and a compressed overview (sizes exaggerated)'
 scaleBtn.textContent = targetBlend > 0.5 ? 'True scale' : 'Overview'
 scaleBtn.addEventListener('click', () => {
+  cancelIntro()
   targetBlend = targetBlend > 0.5 ? 0 : 1
   scaleBtn.textContent = targetBlend > 0.5 ? 'True scale' : 'Overview'
   // Switching the mapping alone leaves the camera framed on the current body,
@@ -255,12 +256,24 @@ morePanel.style.cssText =
   'position:fixed;top:calc(58px + env(safe-area-inset-top));right:calc(10px + env(safe-area-inset-right));display:none;flex-direction:column;gap:8px;' +
   'background:rgba(12,14,22,0.92);border:1px solid #2a2f44;border-radius:12px;padding:10px;z-index:25'
 document.body.appendChild(morePanel)
+morePanel.id = 'more-panel'
+moreBtn.setAttribute('aria-controls', morePanel.id)
 const setMoreOpen = (open: boolean) => {
+  // The toolbar can still wrap on very narrow screens: open below its real height.
+  if (open) morePanel.style.top = `${ui.getBoundingClientRect().bottom + 8}px`
   morePanel.style.display = open ? 'flex' : 'none'
   moreBtn.setAttribute('aria-expanded', String(open))
 }
 moreBtn.addEventListener('click', () => setMoreOpen(morePanel.style.display === 'none'))
 renderer.domElement.addEventListener('pointerdown', () => setMoreOpen(false))
+qualitySel.addEventListener('change', () => setMoreOpen(false))
+shareBtn.addEventListener('click', () => setTimeout(() => setMoreOpen(false), 900))
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && morePanel.style.display !== 'none') {
+    setMoreOpen(false)
+    moreBtn.focus()
+  }
+})
 const narrow = window.matchMedia('(max-width: 640px)')
 function layoutToolbar(): void {
   if (narrow.matches) {
@@ -394,6 +407,15 @@ function showHint(): void {
 }
 
 // Any manual drag or zoom during the Overview transition wins over the auto pull-back.
+// camera-controls doesn't emit controlstart for the mouse wheel.
+renderer.domElement.addEventListener(
+  'wheel',
+  () => {
+    pendingSystemFrame = false
+    cancelIntro()
+  },
+  { passive: true },
+)
 rig.controls.addEventListener('controlstart', () => {
   pendingSystemFrame = false
   cancelIntro()
@@ -415,6 +437,9 @@ function kindOf(def: BodyDef): FrameKind {
 
 const jdToIso = () => jdToDate(clock.jd).toISOString()
 function syncUrl(): void {
+  // Keep the URL bare during the opening glide: a reload mid-glide should
+  // replay it, not land on a half-way ?obj=sun&scale=overview state.
+  if (introRunning) return
   writeState(focus.targetId, clock.playing ? null : jdToIso(), targetBlend > 0.5)
 }
 
@@ -444,8 +469,8 @@ function updateStats(): void {
  * (radians about the ecliptic pole) so the planet shows a lit limb and some
  * night side instead of a flat, fully lit disc.
  */
-function flyTo(id: string, instant = false, side = 0.55): void {
-  cancelIntro()
+function flyTo(id: string, instant = false, side = 0.55, fromIntro = false): void {
+  if (!fromIntro) cancelIntro()
   pendingSystemFrame = false
   focus.setTarget(id)
   if (instant) focus.snap(positions)
@@ -496,6 +521,14 @@ window.addEventListener('resize', () => {
 
 document.addEventListener('visibilitychange', () => {
   renderer.setAnimationLoop(document.hidden ? null : loop)
+  // The loop pauses while hidden but timers don't: hold the glide until the
+  // tab is visible again so the user doesn't return mid-flight.
+  if (introTimer && document.hidden) {
+    clearTimeout(introTimer)
+    introTimer = -1
+  } else if (introTimer === -1 && !document.hidden) {
+    startIntroTimer(1200)
+  }
 })
 
 // --- pointer: click-to-fly + hover ---
@@ -577,13 +610,27 @@ let introToTrueScale = false
 // Third stage: the rescale during the blend drifts a little, so ease to the
 // standard framing distance once true scale is reached.
 let introSettle = false
-function cancelIntro(): void {
-  if (!introTimer && !introToTrueScale && !introSettle) return
+// True from the first frame of the glide until it ends or is cancelled.
+let introRunning = false
+function endIntro(): void {
   clearTimeout(introTimer)
   introTimer = 0
   introToTrueScale = false
   introSettle = false
+  introRunning = false
   showHint()
+}
+function cancelIntro(): void {
+  if (!introRunning) return
+  endIntro()
+  syncUrl()
+}
+function startIntroTimer(ms: number): void {
+  introTimer = window.setTimeout(() => {
+    introTimer = 0
+    flyTo(startId, false, 1.15, true)
+    introToTrueScale = true
+  }, ms)
 }
 function systemFrameDistance(): number {
   // Neptune maps to ~55 and Pluto to ~59 render units in the overview. Fit a
@@ -597,13 +644,10 @@ const playIntro = !requested && !dateLinked && !readScaleParam()
 if (playIntro) {
   blend = targetBlend = 1
   scaleBtn.textContent = 'True scale'
-  flyTo('sun', true)
+  introRunning = true
+  flyTo('sun', true, 0.55, true)
   void rig.controls.dollyTo(systemFrameDistance(), false)
-  introTimer = window.setTimeout(() => {
-    introTimer = 0
-    flyTo(startId, false, 1.15)
-    introToTrueScale = true
-  }, 2000)
+  startIntroTimer(2000)
 } else {
   flyTo(startId, true)
   showHint()
@@ -662,13 +706,11 @@ function tick(dtOverride?: number): void {
     introSettle = true
     targetBlend = 0
     scaleBtn.textContent = 'Overview'
-    syncUrl()
-    showHint()
   }
   if (introSettle && blend === 0) {
-    introSettle = false
     const def = BODY_BY_ID[focus.targetId]
     void rig.controls.dollyTo(rig.frameDistance(solar.renderRadius(def, 0), kindOf(def)), true)
+    endIntro() // shows the hint; the URL stays bare so a reload replays the glide
   }
 
   if (pendingSystemFrame && blend === 1 && !focus.flying) {
@@ -701,7 +743,7 @@ function tick(dtOverride?: number): void {
   // Fade them in only once the camera is pulled back (true scale: units = AU).
   solar.setBeltFade(THREE.MathUtils.smoothstep(rig.distance, 0.05, 0.5))
 
-  // First visit only: if the default tier can't hold ~30fps over the first
+  // First visit only: if the default tier can't hold ~25fps over the first
   // seconds, quietly drop to Low (not persisted, so a faster session retries).
   if (autoTierGuard && frame > 30) {
     if (frame > 600) autoTierGuard = null

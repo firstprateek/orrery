@@ -62,7 +62,9 @@ export function defaultTier(opts: { softwareRendering: boolean; hdrOk: boolean }
 export class SlowFrameGuard {
   private slow = 0
   constructor(
-    private readonly slowMs = 30,
+    // 40 ms, not 30: displays capped at 30 fps (iOS Low Power Mode) run 33 ms
+    // frames and shouldn't be downgraded for it.
+    private readonly slowMs = 40,
     private readonly limit = 45,
   ) {}
   /** Feed one frame time in ms; returns true once the fallback should happen. */
