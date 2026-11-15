@@ -31,9 +31,9 @@ export const QUALITY: Record<QualityTier, QualitySettings> = {
   // triggers a full-res float MSAA blit-resolve every pass that is catastrophic
   // (or software-emulated) on GPUs/browsers without native float-MSAA. Performance
   // skips the composer entirely (direct render, MSAA from the default framebuffer).
-  performance: { tier: 'performance', label: 'Fast · 120fps', targetFps: 120, dpr: 1.0, post: false, msaaSamples: 0, bloomScale: 0.5, beltCount: 1500 },
-  quality: { tier: 'quality', label: 'Balanced · 60fps', targetFps: 60, dpr: 1.5, post: true, msaaSamples: 0, bloomScale: 0.5, beltCount: 2500 },
-  highest: { tier: 'highest', label: 'Beautiful · 30fps', targetFps: 30, dpr: 2.0, post: true, msaaSamples: 0, bloomScale: 1.0, beltCount: 3500 },
+  performance: { tier: 'performance', label: 'Low quality', targetFps: 120, dpr: 1.0, post: false, msaaSamples: 0, bloomScale: 0.5, beltCount: 1500 },
+  quality: { tier: 'quality', label: 'Medium quality', targetFps: 60, dpr: 1.5, post: true, msaaSamples: 0, bloomScale: 0.5, beltCount: 2500 },
+  highest: { tier: 'highest', label: 'High quality', targetFps: 30, dpr: 2.0, post: true, msaaSamples: 0, bloomScale: 1.0, beltCount: 3500 },
 }
 
 /** Largest belt allocation across tiers (InstancedMesh capacity). */
@@ -41,6 +41,35 @@ export const MAX_BELT = QUALITY.highest.beltCount
 
 export const QUALITY_ORDER: QualityTier[] = ['performance', 'quality', 'highest']
 
-export function resolveTier(value: string | null): QualityTier {
-  return value === 'quality' || value === 'highest' ? value : 'performance'
+/** Parse a stored tier; anything missing or unknown becomes `fallback`. */
+export function resolveTier(value: string | null, fallback: QualityTier = 'performance'): QualityTier {
+  return value === 'performance' || value === 'quality' || value === 'highest' ? value : fallback
+}
+
+/**
+ * Tier for a first visit (no stored choice). New visitors should see the app
+ * at its best that is likely to run smoothly: Medium (bloom on) when the GPU can
+ * do the HDR composer, else Low. A slow first few seconds still drops to Low.
+ */
+export function defaultTier(opts: { softwareRendering: boolean; hdrOk: boolean }): QualityTier {
+  return opts.softwareRendering || !opts.hdrOk ? 'performance' : 'quality'
+}
+
+/**
+ * First-visit frame-rate guard: counts slow frames (with decay for fast ones)
+ * and says when to fall back to the Low tier. Pure so it can be unit-tested.
+ */
+export class SlowFrameGuard {
+  private slow = 0
+  constructor(
+    // 40 ms, not 30: displays capped at 30 fps (iOS Low Power Mode) run 33 ms
+    // frames and shouldn't be downgraded for it.
+    private readonly slowMs = 40,
+    private readonly limit = 45,
+  ) {}
+  /** Feed one frame time in ms; returns true once the fallback should happen. */
+  push(frameMs: number): boolean {
+    this.slow = frameMs > this.slowMs ? this.slow + 1 : Math.max(0, this.slow - 1)
+    return this.slow >= this.limit
+  }
 }

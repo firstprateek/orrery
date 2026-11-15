@@ -6,8 +6,8 @@ import { SimClock } from './sim/time'
 import { makeTrueScale, makeVisualScale } from './scene/scaleMapping'
 import { createRenderer } from './scene/Renderer'
 import { createComposer, supportsHdrComposer } from './scene/Composer'
-import { QUALITY, QUALITY_ORDER, resolveTier, type QualityTier } from './scene/quality'
-import { CameraRig } from './scene/CameraRig'
+import { QUALITY, QUALITY_ORDER, SlowFrameGuard, defaultTier, resolveTier, type QualityTier } from './scene/quality'
+import { CameraRig, type FrameKind } from './scene/CameraRig'
 import { SolarSystem } from './scene/SolarSystem'
 import { createSky } from './scene/Sky'
 import { createStarField } from './scene/StarField'
@@ -51,7 +51,14 @@ function readStoredQuality(): string | null {
     return null
   }
 }
-let quality = QUALITY[resolveTier(readStoredQuality())]
+// The HDR composer needs float-renderable targets; without the extension, fall
+// back to the direct path rather than rendering black (or crawling).
+const hdrOk = supportsHdrComposer(renderer)
+// No stored choice → start at Medium where bloom is supported, and let the
+// first seconds' frame rate drop it to Low (see autoTierGuard in tick).
+const storedTier = readStoredQuality()
+let autoTierGuard: SlowFrameGuard | null = storedTier === null ? new SlowFrameGuard() : null
+let quality = QUALITY[resolveTier(storedTier, defaultTier({ softwareRendering, hdrOk }))]
 if (softwareRendering) quality = QUALITY.performance
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, quality.dpr))
 
@@ -75,9 +82,6 @@ createStarField(import.meta.env.BASE_URL, renderer.getPixelRatio())
   })
   .catch((err) => console.warn('star field unavailable:', err))
 
-// The HDR composer needs float-renderable targets; without the extension, fall
-// back to the direct path rather than rendering black (or crawling).
-const hdrOk = supportsHdrComposer(renderer)
 let composer = quality.post && hdrOk ? createComposer(renderer, scene, rig.camera, quality) : null
 solar.setSunBoost(composer !== null)
 
@@ -158,6 +162,7 @@ scaleBtn.style.cssText = controlCss + ';cursor:pointer;pointer-events:auto'
 scaleBtn.title = 'Toggle between true scale and a compressed overview (sizes exaggerated)'
 scaleBtn.textContent = targetBlend > 0.5 ? 'True scale' : 'Overview'
 scaleBtn.addEventListener('click', () => {
+  cancelIntro()
   targetBlend = targetBlend > 0.5 ? 0 : 1
   scaleBtn.textContent = targetBlend > 0.5 ? 'True scale' : 'Overview'
   // Switching the mapping alone leaves the camera framed on the current body,
@@ -237,14 +242,68 @@ helpBtn.addEventListener('click', toggleHelp)
 helpOverlay.addEventListener('click', toggleHelp)
 document.body.appendChild(helpOverlay)
 ui.appendChild(helpBtn)
+
+// Phones: the full toolbar wraps to two rows over the planet. Fold Quality and
+// Share into a "⋯" popover there; move them back on wider screens.
+const moreBtn = document.createElement('button')
+moreBtn.textContent = '⋯'
+moreBtn.title = 'More options'
+moreBtn.setAttribute('aria-label', 'More options')
+moreBtn.setAttribute('aria-expanded', 'false')
+moreBtn.style.cssText = controlCss + ';cursor:pointer;pointer-events:auto;min-width:38px'
+const morePanel = document.createElement('div')
+morePanel.style.cssText =
+  'position:fixed;top:calc(58px + env(safe-area-inset-top));right:calc(10px + env(safe-area-inset-right));display:none;flex-direction:column;gap:8px;' +
+  'background:rgba(12,14,22,0.92);border:1px solid #2a2f44;border-radius:12px;padding:10px;z-index:25'
+document.body.appendChild(morePanel)
+morePanel.id = 'more-panel'
+moreBtn.setAttribute('aria-controls', morePanel.id)
+const setMoreOpen = (open: boolean) => {
+  // The toolbar can still wrap on very narrow screens: open below its real height.
+  if (open) morePanel.style.top = `${ui.getBoundingClientRect().bottom + 8}px`
+  morePanel.style.display = open ? 'flex' : 'none'
+  moreBtn.setAttribute('aria-expanded', String(open))
+}
+moreBtn.addEventListener('click', () => setMoreOpen(morePanel.style.display === 'none'))
+renderer.domElement.addEventListener('pointerdown', () => setMoreOpen(false))
+qualitySel.addEventListener('change', () => setMoreOpen(false))
+shareBtn.addEventListener('click', () => setTimeout(() => setMoreOpen(false), 900))
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && morePanel.style.display !== 'none') {
+    setMoreOpen(false)
+    moreBtn.focus()
+  }
+})
+const narrow = window.matchMedia('(max-width: 640px)')
+function layoutToolbar(): void {
+  if (narrow.matches) {
+    morePanel.append(qualitySel, shareBtn)
+    ui.insertBefore(moreBtn, helpBtn)
+    for (const c of [qualitySel, shareBtn]) c.style.maxWidth = 'none'
+  } else {
+    setMoreOpen(false)
+    moreBtn.remove()
+    ui.insertBefore(qualitySel, helpBtn)
+    ui.insertBefore(shareBtn, helpBtn)
+    for (const c of [qualitySel, shareBtn]) c.style.maxWidth = '44vw'
+  }
+}
+layoutToolbar()
+narrow.addEventListener('change', () => {
+  layoutToolbar()
+  placeHint()
+})
 document.body.appendChild(ui)
 
-function applyQuality(tier: QualityTier): void {
+function applyQuality(tier: QualityTier, persist = true): void {
   quality = QUALITY[tier]
-  try {
-    localStorage.setItem('orrery-quality', tier)
-  } catch {
-    // private mode / storage unavailable — fine, just won't persist
+  if (persist) {
+    autoTierGuard = null // an explicit choice always wins over the auto fallback
+    try {
+      localStorage.setItem('orrery-quality', tier)
+    } catch {
+      // private mode / storage unavailable — fine, just won't persist
+    }
   }
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, quality.dpr))
   renderer.setSize(window.innerWidth, window.innerHeight)
@@ -272,13 +331,25 @@ const hud = document.createElement('div')
 hud.style.cssText =
   'position:fixed;left:calc(14px + env(safe-area-inset-left));bottom:calc(84px + env(safe-area-inset-bottom));max-width:min(60vw,340px);' +
   'color:#aab3d0;font:12px/1.6 ui-monospace,monospace;text-shadow:0 1px 2px #000;pointer-events:none;z-index:10'
+hud.className = debugMode ? 'hud debug' : 'hud'
 document.body.appendChild(hud)
 
 // Fact panel sits ABOVE the time bar's band so they never collide.
 const factEl = document.createElement('div')
 factEl.style.cssText =
   'position:fixed;right:calc(14px + env(safe-area-inset-right));bottom:calc(84px + env(safe-area-inset-bottom));max-width:min(300px,44vw);' +
-  'color:#cdd6ff;font:13px/1.5 system-ui;text-align:right;text-shadow:0 1px 3px #000;pointer-events:none;z-index:10'
+  'color:#cdd6ff;font:13px/1.5 system-ui;text-align:right;text-shadow:0 1px 3px #000;pointer-events:none;z-index:10;' +
+  // A soft backing keeps planet labels that drift behind it from muddling the text.
+  'background:rgba(12,14,22,0.5);padding:8px 12px;border-radius:10px;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)'
+factEl.className = 'fact'
+// Phones: smaller facts so they don't cover half the planet.
+const factStyle = document.createElement('style')
+// The body · distance readout would collide with the facts there, and the
+// facts already name the body, so phones drop it (unless ?debug).
+factStyle.textContent =
+  '@media (max-width: 640px){.fact{font-size:12px!important;line-height:1.4!important;max-width:62vw!important}' +
+  '.hud:not(.debug){display:none}}'
+document.head.appendChild(factStyle)
 document.body.appendChild(factEl)
 
 if (softwareRendering) {
@@ -303,12 +374,16 @@ let hint: HTMLDivElement | null = null
 const placeHint = () => {
   if (hint) hint.style.top = `${ui.getBoundingClientRect().bottom + 12}px`
 }
-if (!hintSeen()) {
+// Called once the opening glide ends (or right away when there is none).
+let hintShown = false
+function showHint(): void {
+  if (hintShown || hintSeen()) return
+  hintShown = true
   const h = document.createElement('div')
   hint = h
   h.textContent = 'drag to look around · scroll or pinch to zoom · tap a planet or pick one above to fly there'
   h.style.cssText =
-    'position:fixed;left:50%;transform:translateX(-50%);max-width:min(92vw,560px);text-align:center;' +
+    'position:fixed;left:0;right:0;margin:0 auto;width:max-content;max-width:min(92vw,560px);text-align:center;box-sizing:border-box;' +
     'background:rgba(12,14,22,0.8);color:#cdd6ff;border:1px solid #2a2f44;border-radius:10px;padding:10px 16px;font:14px/1.5 system-ui;z-index:20;' +
     'transition:opacity 1s;cursor:pointer'
   const dismissHint = () => {
@@ -332,7 +407,19 @@ if (!hintSeen()) {
 }
 
 // Any manual drag or zoom during the Overview transition wins over the auto pull-back.
-rig.controls.addEventListener('controlstart', () => (pendingSystemFrame = false))
+// camera-controls doesn't emit controlstart for the mouse wheel.
+renderer.domElement.addEventListener(
+  'wheel',
+  () => {
+    pendingSystemFrame = false
+    cancelIntro()
+  },
+  { passive: true },
+)
+rig.controls.addEventListener('controlstart', () => {
+  pendingSystemFrame = false
+  cancelIntro()
+})
 
 const labels = new Labels(solar, (id) => flyTo(id))
 
@@ -341,14 +428,18 @@ let fps = 0
 let msEma = 16
 let hoveredId: string | null = null
 
-function kindOf(def: BodyDef): 'sun' | 'planet' | 'moon' | 'small' {
+function kindOf(def: BodyDef): FrameKind {
   if (def.type === 'star') return 'sun'
+  if (def.ringOuterKm) return 'ringed'
   if (def.type === 'moon') return def.radiusKm < 100 ? 'small' : 'moon'
   return 'planet'
 }
 
 const jdToIso = () => jdToDate(clock.jd).toISOString()
 function syncUrl(): void {
+  // Keep the URL bare during the opening glide: a reload mid-glide should
+  // replay it, not land on a half-way ?obj=sun&scale=overview state.
+  if (introRunning) return
   writeState(focus.targetId, clock.playing ? null : jdToIso(), targetBlend > 0.5)
 }
 
@@ -373,7 +464,13 @@ function updateStats(): void {
     : `${def.name} · ${dist}`
 }
 
-function flyTo(id: string, instant = false): void {
+/**
+ * Fly to a body. `side` swings the viewpoint round from the Sun's direction
+ * (radians about the ecliptic pole) so the planet shows a lit limb and some
+ * night side instead of a flat, fully lit disc.
+ */
+function flyTo(id: string, instant = false, side = 0.55, fromIntro = false): void {
+  if (!fromIntro) cancelIntro()
   pendingSystemFrame = false
   focus.setTarget(id)
   if (instant) focus.snap(positions)
@@ -387,8 +484,11 @@ function flyTo(id: string, instant = false): void {
   }
   const a = positions[id]
   const len = Math.hypot(a.x, a.y, a.z)
-  const dir =
+  const sunward =
     len < 1e-9 ? { x: 1, y: 0, z: 0.5 } : { x: -a.x / len, y: -a.y / len, z: -a.z / len + 0.5 }
+  const cs = Math.cos(side)
+  const sn = Math.sin(side)
+  const dir = { x: sunward.x * cs - sunward.y * sn, y: sunward.x * sn + sunward.y * cs, z: sunward.z }
   const r = solar.renderRadius(def, blend)
   rig.frameFrom(r, kindOf(def), dir, !instant)
   prevFr = r
@@ -421,6 +521,14 @@ window.addEventListener('resize', () => {
 
 document.addEventListener('visibilitychange', () => {
   renderer.setAnimationLoop(document.hidden ? null : loop)
+  // The loop pauses while hidden but timers don't: hold the glide until the
+  // tab is visible again so the user doesn't return mid-flight.
+  if (introTimer && document.hidden) {
+    clearTimeout(introTimer)
+    introTimer = -1
+  } else if (introTimer === -1 && !document.hidden) {
+    startIntroTimer(1200)
+  }
 })
 
 // --- pointer: click-to-fly + hover ---
@@ -491,7 +599,59 @@ function layoutOverlays(): void {
 }
 layoutOverlays()
 
-flyTo(startId, true)
+// --- opening glide ---
+// A bare visit (no shared link) opens on the whole system, then glides into
+// Earth from the side so day and night both show. Any input cancels it.
+let introTimer = 0
+// Second stage: once the glide to Earth (still in the overview) lands, blend to
+// true scale; the per-frame rescale in tick() keeps Earth framed as it shrinks.
+// Doing both at once makes the camera transition and the rescale fight.
+let introToTrueScale = false
+// Third stage: the rescale during the blend drifts a little, so ease to the
+// standard framing distance once true scale is reached.
+let introSettle = false
+// True from the first frame of the glide until it ends or is cancelled.
+let introRunning = false
+function endIntro(): void {
+  clearTimeout(introTimer)
+  introTimer = 0
+  introToTrueScale = false
+  introSettle = false
+  introRunning = false
+  showHint()
+}
+function cancelIntro(): void {
+  if (!introRunning) return
+  endIntro()
+  syncUrl()
+}
+function startIntroTimer(ms: number): void {
+  introTimer = window.setTimeout(() => {
+    introTimer = 0
+    flyTo(startId, false, 1.15, true)
+    introToTrueScale = true
+  }, ms)
+}
+function systemFrameDistance(): number {
+  // Neptune maps to ~55 and Pluto to ~59 render units in the overview. Fit a
+  // sphere of 70 (margin for the toolbar and time bar) in the narrower of the
+  // two FOVs; portrait phones are width-limited.
+  const halfV = THREE.MathUtils.degToRad(rig.camera.fov / 2)
+  const half = Math.min(halfV, Math.atan(Math.tan(halfV) * rig.camera.aspect))
+  return 70 / Math.sin(half)
+}
+const playIntro = !requested && !dateLinked && !readScaleParam()
+if (playIntro) {
+  blend = targetBlend = 1
+  scaleBtn.textContent = 'True scale'
+  introRunning = true
+  flyTo('sun', true, 0.55, true)
+  void rig.controls.dollyTo(systemFrameDistance(), false)
+  startIntroTimer(2000)
+} else {
+  flyTo(startId, true)
+  showHint()
+}
 
 // --- loop ---
 const timer = new THREE.Timer()
@@ -541,14 +701,21 @@ function tick(dtOverride?: number): void {
     hoverPending = false
   }
 
+  if (introToTrueScale && !focus.flying && rig.controls.currentAction === 0 && !rig.controls.active) {
+    introToTrueScale = false
+    introSettle = true
+    targetBlend = 0
+    scaleBtn.textContent = 'Overview'
+  }
+  if (introSettle && blend === 0) {
+    const def = BODY_BY_ID[focus.targetId]
+    void rig.controls.dollyTo(rig.frameDistance(solar.renderRadius(def, 0), kindOf(def)), true)
+    endIntro() // shows the hint; the URL stays bare so a reload replays the glide
+  }
+
   if (pendingSystemFrame && blend === 1 && !focus.flying) {
     pendingSystemFrame = false
-    // Neptune maps to ~55 and Pluto to ~59 render units in the overview. Fit a
-    // sphere of 70 (margin for the toolbar and time bar) in the narrower of
-    // the two FOVs; portrait phones are width-limited.
-    const halfV = THREE.MathUtils.degToRad(rig.camera.fov / 2)
-    const half = Math.min(halfV, Math.atan(Math.tan(halfV) * rig.camera.aspect))
-    void rig.controls.dollyTo(70 / Math.sin(half), true)
+    void rig.controls.dollyTo(systemFrameDistance(), true)
   }
 
   rig.update(dt)
@@ -569,6 +736,21 @@ function tick(dtOverride?: number): void {
 
   if (frame % 2 === 0) {
     labels.update(solar, rig.camera, window.innerWidth, window.innerHeight, focus.targetId, hoveredId)
+  }
+
+  // Asteroid-belt rocks are drawn far larger than real asteroids so they show
+  // up from afar; in a planet close-up they read as debris right beside it.
+  // Fade them in only once the camera is pulled back (true scale: units = AU).
+  solar.setBeltFade(THREE.MathUtils.smoothstep(rig.distance, 0.05, 0.5))
+
+  // First visit only: if the default tier can't hold ~25fps over the first
+  // seconds, quietly drop to Low (not persisted, so a faster session retries).
+  if (autoTierGuard && frame > 30) {
+    if (frame > 600) autoTierGuard = null
+    else if (autoTierGuard.push(dt * 1000)) {
+      autoTierGuard = null
+      if (quality.tier !== 'performance') applyQuality('performance', false)
+    }
   }
 
   msEma += (dt * 1000 - msEma) * 0.1

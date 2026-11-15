@@ -14,6 +14,8 @@ on screen.
 
 ## What you can do
 
+A fresh visit opens on the whole system, then glides in to Earth. From there:
+
 - **Fly to any body.** Click or tap a planet or its label, or pick one from the
   menu at the top left. The camera glides there and frames it.
 - **Look around and zoom.** Every body is explorable at true scale, from Jupiter's
@@ -28,9 +30,11 @@ on screen.
   mode you're looking at, for example
   [Saturn on 1 October 2017](https://firstprateek.github.io/orrery/?obj=saturn&date=2017-10-01T00:00:00.000Z),
   when its rings were near their widest (drag to tilt the view and see them).
-- **Trade looks for speed.** The quality menu picks between *Fast*, *Balanced*
-  and *Beautiful*: higher tiers add Sun bloom and render at a higher resolution.
-  The choice is remembered.
+- **Trade looks for speed.** The quality menu picks *Low*, *Medium* or *High*:
+  higher tiers add Sun bloom and render at a higher resolution. First visits
+  start on Medium where the GPU supports it and drop to Low if the frame rate
+  struggles; a choice you make is remembered. On phones, quality and *Share*
+  sit under the *⋯* button.
 
 ### Controls
 

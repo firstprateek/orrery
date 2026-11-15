@@ -1,6 +1,9 @@
 import * as THREE from 'three'
 import CameraControls from 'camera-controls'
 
+/** Framing class; 'ringed' backs off far enough to show the whole ring system. */
+export type FrameKind = 'sun' | 'planet' | 'ringed' | 'moon' | 'small'
+
 CameraControls.install({ THREE })
 
 /**
@@ -28,7 +31,7 @@ export class CameraRig {
   /** Frame a body, viewing it from `dir` (e.g. the sunlit side) at the focus origin. */
   frameFrom(
     renderRadius: number,
-    kind: 'sun' | 'planet' | 'moon' | 'small',
+    kind: FrameKind,
     dir: { x: number; y: number; z: number },
     transition = true,
   ): void {
@@ -37,9 +40,16 @@ export class CameraRig {
     this.camera.near = Math.max(renderRadius * 1e-3, 1e-9)
     this.camera.far = 1e4
     this.camera.updateProjectionMatrix()
-    const dist = renderRadius * { sun: 6, planet: 3.5, moon: 4, small: 8 }[kind]
+    const dist = this.frameDistance(renderRadius, kind)
     const m = Math.hypot(dir.x, dir.y, dir.z) || 1
     void this.controls.setLookAt((dir.x / m) * dist, (dir.y / m) * dist, (dir.z / m) * dist, 0, 0, 0, transition)
+  }
+
+  /** Standard viewing distance for a body of this render radius. */
+  frameDistance(renderRadius: number, kind: FrameKind): number {
+    // Portrait screens are width-limited: back off so the body still fits across.
+    const portraitFit = Math.max(1, 0.9 / this.camera.aspect)
+    return renderRadius * { sun: 6, planet: 3.5, ringed: 6, moon: 4, small: 8 }[kind] * portraitFit
   }
 
   /** Update only near/far for a focused body of the given render radius. */

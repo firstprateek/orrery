@@ -106,7 +106,13 @@ export class SolarSystem {
   private buildBelt(): THREE.InstancedMesh {
     const instances = makeBelt({ count: MAX_BELT })
     const geo = new THREE.IcosahedronGeometry(1, 0)
-    const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, metalness: 0, flatShading: true })
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      roughness: 1,
+      metalness: 0,
+      flatShading: true,
+      transparent: true, // for setBeltFade
+    })
     const mesh = new THREE.InstancedMesh(geo, mat, instances.length)
     const m = new THREE.Matrix4()
     const p = new THREE.Vector3()
@@ -289,6 +295,12 @@ export class SolarSystem {
           }`,
         )
     }
+  }
+
+  /** Fade the belt (0 hidden … 1 opaque). Call after place(), which sets visibility by scale mode. */
+  setBeltFade(f: number): void {
+    ;(this.belt.material as THREE.MeshStandardMaterial).opacity = f
+    if (f < 0.01) this.belt.visible = false
   }
 
   /** Blended render radius (AU→units) of a body at scale blend (0=true, 1=visual). */
