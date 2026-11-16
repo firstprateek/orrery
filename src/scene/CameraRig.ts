@@ -74,6 +74,12 @@ export class CameraRig {
     const dist = this.frameDistance(renderRadius, kind)
     const m = Math.hypot(dir.x, dir.y, dir.z) || 1
     void this.controls.setLookAt((dir.x / m) * dist, (dir.y / m) * dist, (dir.z / m) * dist, 0, 0, 0, transition)
+    // With up = ecliptic north the azimuth wraps at ±π along +Y (longitude
+    // 90°), and camera-controls tweens theta linearly, so without this a
+    // fly-to between views either side of it swings the long way round.
+    // normalizeRotations wraps the end and shifts the current theta by whole
+    // turns (no visible jump) so the transition takes the short arc.
+    this.controls.normalizeRotations()
   }
 
   /**

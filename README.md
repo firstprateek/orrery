@@ -61,7 +61,7 @@ A fresh visit opens on the whole system, then glides in to Earth. From there:
   the Sun stands within a few degrees of the Greenwich meridian, and Saturn’s
   rings open to the Sun in 2017, go edge-on in 2025 and open the other way by
   the 2030s. The camera's up vector is ecliptic north, so north is up on
-  screen as in textbook diagrams and the view never rolls. Earth follows astronomy-engine's precession and sidereal time; the
+  screen as in textbook diagrams and the ecliptic stays level on screen, except when looking straight down on or up at it. Earth follows astronomy-engine's precession and sidereal time; the
   Sun, the other planets, the Moon and Pluto use astronomy-engine's IAU
   rotation model (exact rates, pole drift, the Moon's libration terms); the
   other moons use their IAU pole and W at J2000, and those on approximate

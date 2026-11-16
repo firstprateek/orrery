@@ -36,5 +36,13 @@ describe('arrivalDirFrom', () => {
     // Pluto-like: 17° inclination puts it well below the plane at times.
     const d = arrivalDirFrom({ x: 30, y: 10, z: -10 })
     expect(d.z).toBeGreaterThan(0)
+    // Above the plane is the case that lowers the view: the sunward z (−p.z)
+    // eats into the lift. At Pluto's 17° the view still sits ~12° up.
+    const lat = (17 * Math.PI) / 180
+    for (const side of [0, DEFAULT_SIDE]) {
+      const up = arrivalDirFrom({ x: 33 * Math.cos(lat), y: 0, z: 33 * Math.sin(lat) }, side)
+      expect(up.z).toBeGreaterThan(0)
+      expect(elevationDeg(up)).toBeGreaterThan(10)
+    }
   })
 })

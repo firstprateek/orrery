@@ -69,6 +69,27 @@ describe('CameraRig up vector', () => {
     expect(up.z).toBeGreaterThan(0)
   })
 
+  it('flies the short way round across ecliptic longitude 90° (the azimuth seam)', () => {
+    const rig = new CameraRig(stubElement(), 1.6)
+    const at = (lonDeg: number) => {
+      const l = THREE.MathUtils.degToRad(lonDeg)
+      return { x: Math.cos(l), y: Math.sin(l), z: 0.5 }
+    }
+    rig.frameFrom(0.01, 'planet', at(80), false)
+    rig.update(0)
+    rig.frameFrom(0.01, 'planet', at(100), true)
+    // Accumulate the azimuth swept frame by frame, unwrapping each step.
+    let prev = Math.atan2(rig.camera.position.y, rig.camera.position.x)
+    let swept = 0
+    for (let i = 0; i < 600; i++) {
+      rig.update(1 / 60)
+      const az = Math.atan2(rig.camera.position.y, rig.camera.position.x)
+      swept += Math.atan2(Math.sin(az - prev), Math.cos(az - prev))
+      prev = az
+    }
+    expect(THREE.MathUtils.radToDeg(swept)).toBeCloseTo(20, 1)
+  })
+
   it('keeps the horizon level while orbiting (a drag) and clamps at the ecliptic poles', () => {
     const rig = new CameraRig(stubElement(), 1.6)
     rig.frameFrom(1, 'sun', { x: 1, y: 0, z: 0.7 }, false)
@@ -84,6 +105,11 @@ describe('CameraRig up vector', () => {
     rig.update(0)
     const p = rig.camera.position.clone().normalize()
     expect(p.z).toBeCloseTo(1, 6)
+    expect(Number.isFinite(rig.camera.quaternion.x)).toBe(true)
+    // And far past the bottom: stops looking straight up at it, no flip.
+    void rig.controls.rotate(0, 20, false)
+    rig.update(0)
+    expect(rig.camera.position.clone().normalize().z).toBeCloseTo(-1, 6)
     expect(Number.isFinite(rig.camera.quaternion.x)).toBe(true)
   })
 })
