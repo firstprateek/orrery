@@ -16,6 +16,7 @@ import { FocusController } from './scene/FocusController'
 import { pickBody } from './scene/Picker'
 import type { FrameState, PickTarget, SceneLayer } from './scene/FrameState'
 import { smoothDamp } from './math/smoothDamp'
+import { DEFAULT_SIDE, arrivalDirFrom } from './math/arrivalDir'
 import { Labels, type PlacedLabel } from './ui/Labels'
 import { helpHtml } from './ui/help'
 import { ShowMenu } from './ui/ShowMenu'
@@ -684,23 +685,9 @@ function updateStats(): void {
     : `${def.name} · ${dist}`
 }
 
-/** Default swing from the sunward direction: a lit limb plus some night side. */
-const DEFAULT_SIDE = 0.55
-
-/**
- * Direction (focus-relative, unnormalised) to view a target from. `side`
- * swings the viewpoint round from the Sun's direction (radians about the
- * ecliptic pole) so a planet shows a lit limb and some night side instead of a
- * flat, fully lit disc; the +0.5 z lifts it a little above the ecliptic.
- */
+/** Direction (focus-relative, unnormalised) to view a target from; see arrivalDirFrom. */
 function arrivalDir(id: string, side = DEFAULT_SIDE): { x: number; y: number; z: number } {
-  const a = positions[id]
-  const len = Math.hypot(a.x, a.y, a.z)
-  const sunward =
-    len < 1e-9 ? { x: 1, y: 0, z: 0.5 } : { x: -a.x / len, y: -a.y / len, z: -a.z / len + 0.5 }
-  const cs = Math.cos(side)
-  const sn = Math.sin(side)
-  return { x: sunward.x * cs - sunward.y * sn, y: sunward.x * sn + sunward.y * cs, z: sunward.z }
+  return arrivalDirFrom(positions[id], side)
 }
 
 interface FlyOpts {

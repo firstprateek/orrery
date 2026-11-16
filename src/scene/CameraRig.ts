@@ -13,6 +13,9 @@ CameraControls.install({ THREE })
  */
 export const MIN_NEAR = 1e-9
 
+/** Camera up: ecliptic north, the scene's +Z. */
+export const ECLIPTIC_NORTH: Readonly<THREE.Vector3> = new THREE.Vector3(0, 0, 1)
+
 /**
  * Focus-and-orbit camera. Because the floating origin always keeps the focused
  * body at render (0,0,0), the rig only orbits the origin — focusing a new body
@@ -27,6 +30,13 @@ export class CameraRig {
 
   constructor(domElement: HTMLElement, aspect: number) {
     this.camera = new THREE.PerspectiveCamera(45, aspect, 1e-7, 1e4)
+    // The scene is ecliptic J2000 with +Z = ecliptic north, so "up" on screen
+    // is ecliptic north too: the planets' plane reads horizontal, Saturn's
+    // rings and Earth's tilt look the way diagrams show them, and the orbit
+    // poles (where dragging stops and the view would roll) sit at the ecliptic
+    // poles instead of at Orion and the Sagittarius core. camera-controls reads
+    // camera.up once, when it is constructed, so this must come first.
+    this.camera.up.copy(ECLIPTIC_NORTH)
     this.controls = new CameraControls(this.camera, domElement)
     this.controls.dollySpeed = 0.6
     this.controls.smoothTime = 0.4 // matches the focus-glide so fly-to finishes together
@@ -43,7 +53,9 @@ export class CameraRig {
     this.controls.touches.two = A.TOUCH_DOLLY
     this.controls.touches.three = A.NONE
     this.controls.minZoom = this.controls.maxZoom = 1
-    // A tilted 3/4 view of the ecliptic rather than a flat edge-on or top-down one.
+    // A tilted 3/4 view of the ecliptic rather than a flat edge-on or top-down
+    // one (polar angle is measured from ecliptic north). main.ts frames a body
+    // straight away, so this only covers the frames before that.
     void this.controls.rotateTo(0.7, 1.1, false)
   }
 
@@ -62,6 +74,12 @@ export class CameraRig {
     const dist = this.frameDistance(renderRadius, kind)
     const m = Math.hypot(dir.x, dir.y, dir.z) || 1
     void this.controls.setLookAt((dir.x / m) * dist, (dir.y / m) * dist, (dir.z / m) * dist, 0, 0, 0, transition)
+    // With up = ecliptic north the azimuth wraps at ±π along +Y (longitude
+    // 90°), and camera-controls tweens theta linearly, so without this a
+    // fly-to between views either side of it swings the long way round.
+    // normalizeRotations wraps the end and shifts the current theta by whole
+    // turns (no visible jump) so the transition takes the short arc.
+    this.controls.normalizeRotations()
   }
 
   /**
