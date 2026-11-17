@@ -1,0 +1,7 @@
+# Root paths (agent-git-workflow). Change only through a root PR.
+# A PR touching these needs the owner's approval of a decision record in docs/decisions/.
+
+# CI, workflows and these rules: a PR could otherwise weaken its own checks.
+/.github/ @firstprateek
+# Decision records: the record of what the owner approved.
+/docs/decisions/ @firstprateek

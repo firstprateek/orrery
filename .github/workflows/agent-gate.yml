@@ -1,0 +1,114 @@
+# agent-gate: passes leaf PRs at once. A PR is root if it touches a path owned in CODEOWNERS (read from
+# the base branch), anything under .github/ or docs/decisions/, a CODEOWNERS file, or carries the
+# tier:root label. A root PR passes only when it adds or edits a decision record in docs/decisions/
+# (dependency bots are exempt) and the owner has approved:
+#   mode bot:  the owner's latest review approves the PR's current head commit;
+#   mode self: the owner added the owner-approved label after the head commit was made.
+# A PR runs its own copy of this file, so .github/ is always root: in bot mode GitHub's code-owner review
+# stops a PR from weakening the gate; in self mode that rests on trust.
+# Repo variables, set by setup: AGENT_GIT_WORKFLOW_MODE (bot|self; unset counts as bot) and
+# AGENT_GIT_WORKFLOW_OWNER (the approver's login). Read-only; no checkout; no third-party actions.
+name: agent-gate
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled, ready_for_review]
+  pull_request_review:
+    types: [submitted, dismissed]
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+
+concurrency:
+  group: agent-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: agent-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      PR: ${{ github.event.pull_request.number }}
+      BASE: ${{ github.event.pull_request.base.sha }}
+      HEAD: ${{ github.event.pull_request.head.sha }}
+      AUTHOR: ${{ github.event.pull_request.user.login }}
+      OWNER: ${{ vars.AGENT_GIT_WORKFLOW_OWNER }}
+      OWNER_TYPE: ${{ github.event.repository.owner.type }}
+      REPO_OWNER: ${{ github.repository_owner }}
+      MODE: ${{ vars.AGENT_GIT_WORKFLOW_MODE || 'bot' }}
+    steps:
+      - name: Check tier and approval
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$1"; echo "$1" >>"$GITHUB_STEP_SUMMARY"; exit 1; }
+          if [ -z "$OWNER" ]; then
+            [ "$OWNER_TYPE" = User ] || fail "Set the AGENT_GIT_WORKFLOW_OWNER repo variable to the approver's login."
+            OWNER=$REPO_OWNER
+          fi
+
+          # "status<TAB>path" for every path the PR touches, including a rename's old path.
+          changes=$(gh api "repos/$REPO/pulls/$PR/files" --paginate \
+            --jq '.[] | "\(.status)\t\(.filename)", (select(.previous_filename) | "removed\t\(.previous_filename)")')
+          paths=$(cut -f2 <<<"$changes")
+
+          co="" err=$(mktemp)
+          for p in .github/CODEOWNERS CODEOWNERS docs/CODEOWNERS; do
+            if co=$(gh api "repos/$REPO/contents/$p?ref=$BASE" -H 'Accept: application/vnd.github.raw' 2>"$err"); then break; fi
+            co=""
+            grep -q 'HTTP 404' "$err" || { cat "$err" >&2; fail "GitHub API error while reading $p; rerun this job."; }
+          done
+
+          # Same matcher as the skill's tier.sh: each CODEOWNERS line tested on its own with git's
+          # matcher, last match wins, "dir/*" covers direct children only. Built-in root paths go last.
+          pat=$(mktemp) empty=$(mktemp -d)
+          git -C "$empty" init -q
+          matches=$(
+            { printf '%s\n' "$co" | awk '{ sub(/[[:space:]]+#.*/, "") } !/^[[:space:]]*(#|$)/ { print (NF > 1) " " $1 }'
+              printf '1 %s\n' /.github/ /docs/decisions/ /CODEOWNERS /docs/CODEOWNERS; } |
+            while read -r owned p; do
+              printf '%s\n' "$p" >"$pat"
+              printf '%s\n' "$paths" |
+                git -C "$empty" -c core.excludesFile="$pat" -c core.quotePath=false check-ignore --no-index --stdin |
+                awk -v o="$owned" -v p="$p" '
+                  BEGIN { star = (p ~ /\/\*$/); pre = p; sub(/^\//, "", pre); sub(/\*$/, "", pre) }
+                  { if (star && index($0, pre) == 1 && index(substr($0, length(pre) + 1), "/")) next
+                    print $0 "\t" o "\t" p }' || true
+            done |
+            awk -F'\t' '{ last[$1] = $2 "\t" $3 } END { for (f in last) { split(last[f], a, "\t"); if (a[1] == 1) print f " (" a[2] ")" } }' |
+            sort)
+          labels=$(gh api "repos/$REPO/issues/$PR/labels" --jq '.[].name')
+
+          if [ -z "$matches" ] && ! grep -qx 'tier:root' <<<"$labels"; then
+            echo "Leaf change: no root paths touched." >>"$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          { echo "Root change. Root paths touched:"; echo '```'; echo "${matches:-(none; labelled tier:root)}"; echo '```'; } >>"$GITHUB_STEP_SUMMARY"
+
+          case "$AUTHOR" in
+            'dependabot[bot]' | 'renovate[bot]') ;;
+            *) awk -F'\t' '$1 != "removed" && $2 ~ /^docs\/decisions\/.+\.md$/ { found = 1 } END { exit !found }' <<<"$changes" ||
+                 fail "Root change: add or edit a decision record in docs/decisions/ for the owner to review." ;;
+          esac
+
+          if [ "$MODE" = self ]; then
+            grep -qx 'owner-approved' <<<"$labels" || fail "Root change: waiting for @$OWNER to add the owner-approved label."
+            labeled=$(gh api "repos/$REPO/issues/$PR/events" --paginate --slurp | jq -r --arg o "$OWNER" '
+              [.[][] | select(.event == "labeled" and .label.name == "owner-approved")] | last
+              | if . == null then "" elif .actor.login != $o then "not-owner" else .created_at end')
+            [ "$labeled" != not-owner ] || fail "owner-approved was added by someone other than @$OWNER."
+            committed=$(gh api "repos/$REPO/commits/$HEAD" --jq .commit.committer.date)
+            [[ "$labeled" > "$committed" || "$labeled" == "$committed" ]] ||
+              fail "New commits after approval: @$OWNER needs to remove and re-add owner-approved."
+          else
+            state=$(gh api "repos/$REPO/pulls/$PR/reviews" --paginate --slurp | jq -r --arg o "$OWNER" --arg h "$HEAD" '
+              [.[][] | select(.user.login == $o and (.state == "APPROVED" or .state == "CHANGES_REQUESTED" or .state == "DISMISSED"))]
+              | last | if . == null then "none" elif .state != "APPROVED" then .state elif .commit_id == $h then "ok"
+                else "approved an older commit" end')
+            [ "$state" = ok ] || fail "Root change: waiting for @$OWNER to approve the current commit (latest owner review: $state)."
+          fi
+          echo "Approved by @$OWNER." >>"$GITHUB_STEP_SUMMARY"
