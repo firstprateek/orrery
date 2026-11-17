@@ -11,8 +11,8 @@ decides is which parts are core.
 ## Decision
 
 Agents use the owner's `gh` login. A root PR passes `agent-gate` once it has a decision record and the
-owner has added the `owner-approved` label after the PR's latest commit was pushed (the time of the
-first workflow run for that commit). Agents never add or remove that
+owner has added the `owner-approved` label after the PR's latest commit was pushed (the first workflow run for that
+commit, or the last force-push if later). Agents never add or remove that
 label. The `main` ruleset has no bypass and no code-owner review; the tag ruleset and the mode variable
 are gone. Root paths stay `.github/` and `docs/decisions/`.
 

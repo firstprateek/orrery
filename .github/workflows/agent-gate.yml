@@ -13,6 +13,7 @@ on:
     types: [opened, synchronize, reopened, labeled, unlabeled, ready_for_review]
 
 permissions:
+  actions: read # when the head commit was pushed
   contents: read
   pull-requests: read
   issues: read
@@ -91,14 +92,19 @@ jobs:
           esac
 
           grep -qx 'owner-approved' <<<"$labels" || fail "Root change: waiting for @$OWNER to add the owner-approved label."
-          labeled=$(gh api "repos/$REPO/issues/$PR/events" --paginate --slurp | jq -r --arg o "$OWNER" '
+          events=$(gh api "repos/$REPO/issues/$PR/events" --paginate --slurp)
+          labeled=$(jq -r --arg o "$OWNER" '
             [.[][] | select(.event == "labeled" and .label.name == "owner-approved")] | last
-            | if . == null then "" elif .actor.login != $o then "not-owner" else .created_at end')
+            | if . == null then "" elif .actor.login != $o then "not-owner" else .created_at end' <<<"$events")
           [ "$labeled" != not-owner ] || fail "owner-approved was added by someone other than @$OWNER."
-          # When the head commit reached GitHub: the first workflow run for it. The commit's own date is set
-          # on the agent's machine, so it can predate the label even if the push came after.
-          arrived=$(gh api "repos/$REPO/actions/runs?head_sha=$HEAD&per_page=100" --jq '[.workflow_runs[].created_at] | min')
-          [ -n "$arrived" ] && [ "$arrived" != null ] || fail "Couldn't tell when the latest commit was pushed; rerun this job."
+          # When the head reached GitHub: the first workflow run for its commit, or the last force-push if
+          # later (a force-push back to an older commit). The commit's own date is set on the agent's
+          # machine, so it can predate the label even if the push came after.
+          first_run=$(gh api "repos/$REPO/actions/runs?head_sha=$HEAD&per_page=100" --paginate \
+            --jq '.workflow_runs[].created_at' | sort | head -n 1)
+          [ -n "$first_run" ] || fail "Couldn't tell when the latest commit was pushed; rerun this job."
+          forced=$(jq -r '[.[][] | select(.event == "head_ref_force_pushed") | .created_at] | max // ""' <<<"$events")
+          arrived=$(printf '%s\n%s\n' "$first_run" "$forced" | sort | tail -n 1)
           [[ "$labeled" > "$arrived" ]] ||
             fail "New commits after approval: @$OWNER needs to remove and re-add owner-approved."
           echo "Approved by @$OWNER." >>"$GITHUB_STEP_SUMMARY"
