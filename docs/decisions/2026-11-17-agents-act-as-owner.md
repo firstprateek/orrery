@@ -11,7 +11,8 @@ decides is which parts are core.
 ## Decision
 
 Agents use the owner's `gh` login. A root PR passes `agent-gate` once it has a decision record and the
-owner has added the `owner-approved` label after the PR's latest commit. Agents never add or remove that
+owner has added the `owner-approved` label after the PR's latest commit was pushed (the time of the
+first workflow run for that commit). Agents never add or remove that
 label. The `main` ruleset has no bypass and no code-owner review; the tag ruleset and the mode variable
 are gone. Root paths stay `.github/` and `docs/decisions/`.
 
@@ -22,12 +23,17 @@ are gone. Root paths stay `.github/` and `docs/decisions/`.
 ## Consequences
 
 Nothing technical stops an agent from adding the label itself; the rule in the skill and AGENTS.md is the
-lock. GitHub doesn't notify the owner about their own account's PRs, so waiting root PRs live in a saved
+lock. The same goes for `.github/`: a PR runs its own copy of `agent-gate.yml`, and with code-owner review
+gone only that rule stops a root PR from editing the gate to pass itself. The ruleset has no bypass, so
+the owner can't push to `main` directly either: emergency fixes go through a PR, or the owner switches the
+ruleset off first. GitHub doesn't notify the owner about their own account's PRs, so waiting root PRs live in a saved
 search instead of the notification inbox.
 
 ## Rollback
 
-Revert this PR and re-run the skill's bot-mode setup; no data is involved.
+The skill no longer has a bot mode, so going back is manual: create a machine account and token, invite
+it with write access, turn code-owner review back on in the `main` ruleset with an admin bypass, re-create
+the tag ruleset, set `AGENT_GIT_WORKFLOW_MODE=bot`, and revert this PR. No data is involved.
 
 ## Proof
 

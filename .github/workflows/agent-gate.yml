@@ -1,9 +1,10 @@
 # agent-gate: passes leaf PRs at once. A PR is root if it touches a path owned in CODEOWNERS (read from
 # the base branch), anything under .github/ or docs/decisions/, a CODEOWNERS file, or carries the
 # tier:root label. A root PR passes only when it adds or edits a decision record in docs/decisions/
-# (dependency bots are exempt) and the owner added the owner-approved label after the PR's latest commit.
-# Agents act as the owner, so the label is a promise agents keep, not a lock: the skill forbids them to
-# add it. Repo variable AGENT_GIT_WORKFLOW_OWNER (set by setup) names the owner. Read-only; no checkout;
+# (dependency bots are exempt) and the owner added the owner-approved label after the PR's latest commit
+# was pushed. Agents act as the owner, so the label is a promise agents keep, not a lock: the skill forbids
+# them to add it. Likewise a PR runs its own copy of this file, so only the same rule stops a root PR from
+# weakening the gate. Repo variable AGENT_GIT_WORKFLOW_OWNER (set by setup) names the owner. Read-only; no checkout;
 # no third-party actions.
 name: agent-gate
 
@@ -94,7 +95,10 @@ jobs:
             [.[][] | select(.event == "labeled" and .label.name == "owner-approved")] | last
             | if . == null then "" elif .actor.login != $o then "not-owner" else .created_at end')
           [ "$labeled" != not-owner ] || fail "owner-approved was added by someone other than @$OWNER."
-          committed=$(gh api "repos/$REPO/commits/$HEAD" --jq .commit.committer.date)
-          [[ "$labeled" > "$committed" || "$labeled" == "$committed" ]] ||
+          # When the head commit reached GitHub: the first workflow run for it. The commit's own date is set
+          # on the agent's machine, so it can predate the label even if the push came after.
+          arrived=$(gh api "repos/$REPO/actions/runs?head_sha=$HEAD&per_page=100" --jq '[.workflow_runs[].created_at] | min')
+          [ -n "$arrived" ] && [ "$arrived" != null ] || fail "Couldn't tell when the latest commit was pushed; rerun this job."
+          [[ "$labeled" > "$arrived" ]] ||
             fail "New commits after approval: @$OWNER needs to remove and re-add owner-approved."
           echo "Approved by @$OWNER." >>"$GITHUB_STEP_SUMMARY"
