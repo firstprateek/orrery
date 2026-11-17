@@ -1,20 +1,15 @@
 # agent-gate: passes leaf PRs at once. A PR is root if it touches a path owned in CODEOWNERS (read from
 # the base branch), anything under .github/ or docs/decisions/, a CODEOWNERS file, or carries the
 # tier:root label. A root PR passes only when it adds or edits a decision record in docs/decisions/
-# (dependency bots are exempt) and the owner has approved:
-#   mode bot:  the owner's latest review approves the PR's current head commit;
-#   mode self: the owner added the owner-approved label after the head commit was made.
-# A PR runs its own copy of this file, so .github/ is always root: in bot mode GitHub's code-owner review
-# stops a PR from weakening the gate; in self mode that rests on trust.
-# Repo variables, set by setup: AGENT_GIT_WORKFLOW_MODE (bot|self; unset counts as bot) and
-# AGENT_GIT_WORKFLOW_OWNER (the approver's login). Read-only; no checkout; no third-party actions.
+# (dependency bots are exempt) and the owner added the owner-approved label after the PR's latest commit.
+# Agents act as the owner, so the label is a promise agents keep, not a lock: the skill forbids them to
+# add it. Repo variable AGENT_GIT_WORKFLOW_OWNER (set by setup) names the owner. Read-only; no checkout;
+# no third-party actions.
 name: agent-gate
 
 on:
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled, ready_for_review]
-  pull_request_review:
-    types: [submitted, dismissed]
 
 permissions:
   contents: read
@@ -40,14 +35,13 @@ jobs:
       OWNER: ${{ vars.AGENT_GIT_WORKFLOW_OWNER }}
       OWNER_TYPE: ${{ github.event.repository.owner.type }}
       REPO_OWNER: ${{ github.repository_owner }}
-      MODE: ${{ vars.AGENT_GIT_WORKFLOW_MODE || 'bot' }}
     steps:
       - name: Check tier and approval
         run: |
           set -euo pipefail
           fail() { echo "::error::$1"; echo "$1" >>"$GITHUB_STEP_SUMMARY"; exit 1; }
           if [ -z "$OWNER" ]; then
-            [ "$OWNER_TYPE" = User ] || fail "Set the AGENT_GIT_WORKFLOW_OWNER repo variable to the approver's login."
+            [ "$OWNER_TYPE" = User ] || fail "Set the AGENT_GIT_WORKFLOW_OWNER repo variable to the owner's login."
             OWNER=$REPO_OWNER
           fi
 
@@ -95,20 +89,12 @@ jobs:
                  fail "Root change: add or edit a decision record in docs/decisions/ for the owner to review." ;;
           esac
 
-          if [ "$MODE" = self ]; then
-            grep -qx 'owner-approved' <<<"$labels" || fail "Root change: waiting for @$OWNER to add the owner-approved label."
-            labeled=$(gh api "repos/$REPO/issues/$PR/events" --paginate --slurp | jq -r --arg o "$OWNER" '
-              [.[][] | select(.event == "labeled" and .label.name == "owner-approved")] | last
-              | if . == null then "" elif .actor.login != $o then "not-owner" else .created_at end')
-            [ "$labeled" != not-owner ] || fail "owner-approved was added by someone other than @$OWNER."
-            committed=$(gh api "repos/$REPO/commits/$HEAD" --jq .commit.committer.date)
-            [[ "$labeled" > "$committed" || "$labeled" == "$committed" ]] ||
-              fail "New commits after approval: @$OWNER needs to remove and re-add owner-approved."
-          else
-            state=$(gh api "repos/$REPO/pulls/$PR/reviews" --paginate --slurp | jq -r --arg o "$OWNER" --arg h "$HEAD" '
-              [.[][] | select(.user.login == $o and (.state == "APPROVED" or .state == "CHANGES_REQUESTED" or .state == "DISMISSED"))]
-              | last | if . == null then "none" elif .state != "APPROVED" then .state elif .commit_id == $h then "ok"
-                else "approved an older commit" end')
-            [ "$state" = ok ] || fail "Root change: waiting for @$OWNER to approve the current commit (latest owner review: $state)."
-          fi
+          grep -qx 'owner-approved' <<<"$labels" || fail "Root change: waiting for @$OWNER to add the owner-approved label."
+          labeled=$(gh api "repos/$REPO/issues/$PR/events" --paginate --slurp | jq -r --arg o "$OWNER" '
+            [.[][] | select(.event == "labeled" and .label.name == "owner-approved")] | last
+            | if . == null then "" elif .actor.login != $o then "not-owner" else .created_at end')
+          [ "$labeled" != not-owner ] || fail "owner-approved was added by someone other than @$OWNER."
+          committed=$(gh api "repos/$REPO/commits/$HEAD" --jq .commit.committer.date)
+          [[ "$labeled" > "$committed" || "$labeled" == "$committed" ]] ||
+            fail "New commits after approval: @$OWNER needs to remove and re-add owner-approved."
           echo "Approved by @$OWNER." >>"$GITHUB_STEP_SUMMARY"
