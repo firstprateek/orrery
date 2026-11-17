@@ -23,8 +23,15 @@ approve it; then the label rule above applies.
 ## Alternatives
 
 - Bot mode: GitHub would enforce the approval, but it costs a second account and token per owner.
+- Keeping `.github/` and `docs/decisions/` as core: rejected by the owner, who wants no approvals in
+  Orrery unless they ask for one.
 
 ## Consequences
+
+With nothing core, changes to CI, the Pages deploy, dependencies, security settings and `agent-gate.yml`
+itself merge after checks and a fresh review, with no owner involved. `src/math`, `src/config` and
+`src/sim` are not core either; the learning loop can still propose core paths from evidence (regressions
+traced to a PR), and the owner decides.
 
 Nothing technical stops an agent from adding the label itself; the rule in the skill and AGENTS.md is the
 lock. The same goes for `.github/`: a PR runs its own copy of `agent-gate.yml`, and with code-owner review
@@ -35,11 +42,15 @@ search instead of the notification inbox.
 
 ## Rollback
 
+Back to core paths: delete the `AGENT_GIT_WORKFLOW_CORE` variable (or set it to `paths`), restore
+`.github/CODEOWNERS`, and restore the root-path lines in AGENTS.md.
+
 The skill no longer has a bot mode, so going back is manual: create a machine account and token, invite
 it with write access, turn code-owner review back on in the `main` ruleset with an admin bypass, re-create
 the tag ruleset, set `AGENT_GIT_WORKFLOW_MODE=bot`, and revert this PR. No data is involved.
 
 ## Proof
 
-This PR is the live test: `agent-gate` must stay red until the owner adds `owner-approved`, then pass and
-let auto-merge finish.
+Earlier commits of this PR showed the label path working on GitHub: `agent-gate` stayed red with
+"waiting for @firstprateek to add the owner-approved label". With `core: none` it passes without a label,
+as intended.

@@ -19,3 +19,4 @@ Agents land every change through a pull request, following [agent-git-workflow](
   decision record in `docs/decisions/`, and wait for the owner to add `owner-approved`.
 - owner: @firstprateek. Agents act on GitHub as the owner, never add or remove `owner-approved`, and
   never push to the default branch.
+- Waiting for the owner: `is:open is:pr label:tier:root -label:owner-approved`.
