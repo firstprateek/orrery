@@ -14,9 +14,9 @@ Agents land every change through a pull request, following [agent-git-workflow](
 
 - check: `npm run check` (typecheck, tests, build). It must pass before a PR is opened.
 - proof: for visual changes, screenshots of the scene at 1280 and 390 px wide; otherwise test output.
-- mode: bot
-- owner: @firstprateek
-- Root paths are in `.github/CODEOWNERS`, each with its reason, plus `.github/` and `docs/decisions/`.
-  Decision records are in `docs/decisions/`.
-- Leaf PRs auto-merge after a fresh-context review and green checks. Root PRs also need a decision
-  record that the owner approves. Never push to the default branch.
+- core: none. Nothing needs the owner's approval: every PR auto-merges after a fresh-context review and
+  green checks. Only when the owner asks to approve a specific change, label it `tier:root`, add a
+  decision record in `docs/decisions/`, and wait for the owner to add `owner-approved`.
+- owner: @firstprateek. Agents act on GitHub as the owner, never add or remove `owner-approved`, and
+  never push to the default branch.
+- Waiting for the owner: `is:open is:pr label:tier:root -label:owner-approved`.

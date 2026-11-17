@@ -1,6 +1,6 @@
 # Agents land changes through agent-git-workflow
 
-Status: Accepted once merged · Date: 2026-11-17
+Status: Accepted · Date: 2026-11-17 · Superseded by 2026-11-17-agents-act-as-owner.md
 
 ## Context
 
