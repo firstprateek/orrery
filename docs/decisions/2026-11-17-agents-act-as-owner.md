@@ -1,4 +1,4 @@
-# Agents act as the owner; the owner approves root PRs with a label
+# Agents act as the owner, and nothing in Orrery needs approval
 
 Status: Accepted once merged · Date: 2026-11-17 · Supersedes 2026-11-17-adopt-agent-git-workflow.md
 
@@ -14,7 +14,11 @@ Agents use the owner's `gh` login. A root PR passes `agent-gate` once it has a d
 owner has added the `owner-approved` label after the PR's latest commit was pushed (the first workflow run for that
 commit, or the last force-push if later). Agents never add or remove that
 label. The `main` ruleset has no bypass and no code-owner review; the tag ruleset and the mode variable
-are gone. Root paths stay `.github/` and `docs/decisions/`.
+are gone.
+
+Nothing in Orrery is core (owner, 2026-11-17): `AGENT_GIT_WORKFLOW_CORE=none`, and CODEOWNERS is removed.
+Every PR merges after checks and a fresh review. A change is root only when the owner explicitly asks to
+approve it; then the label rule above applies.
 
 ## Alternatives
 
