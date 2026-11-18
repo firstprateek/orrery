@@ -34,7 +34,10 @@ A fresh visit opens on the whole system, then glides in to Earth. From there:
   marks nearby star systems with their distance: Proxima and Alpha Centauri,
   Barnard's Star, Sirius, Epsilon Eridani and TRAPPIST-1. They're drawn as
   filled teal dots; click one, or pick it under *Travel to another star system*
-  in the menu, to fly into it and explore its planets. Landmarks you can only
+  in the menu, and you jump there at light speed: the view turns to face it,
+  stars stretch into streaks and a countdown runs down the light-years, then
+  you drop out in front of its star and glide in to explore its planets (with
+  *reduce motion* on, it's a simple fade). Landmarks you can only
   look at (the Andromeda and Triangulum galaxies, the Magellanic Clouds, the
   galactic centre, the Orion Nebula, the Pleiades, Betelgeuse, Polaris, Vega)
   are hollow, dashed grey marks; clicking one shows what it is and how long its
