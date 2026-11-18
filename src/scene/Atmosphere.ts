@@ -30,6 +30,7 @@ export const ATMOSPHERES: Record<string, AtmoConfig> = {
 }
 
 const SHELL = new THREE.SphereGeometry(1, 48, 24)
+SHELL.userData.shared = true // reused across systems: dispose.ts skips it
 
 export function createAtmosphere(cfg: AtmoConfig): THREE.Mesh {
   const material = new THREE.ShaderMaterial({

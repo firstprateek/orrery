@@ -28,6 +28,8 @@ export function createEarthMaterial(
     uNightReady.value = 1
   })
   nightMap.colorSpace = THREE.SRGBColorSpace
+  // Only the shader holds it: list it so dispose.ts frees it with the material.
+  material.userData.extraTextures = [nightMap]
 
   const dayMap = loader.load(`${base}2k_earth_daymap.jpg`, () => {
     material.map = dayMap

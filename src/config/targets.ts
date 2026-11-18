@@ -1,4 +1,4 @@
-import { BODY_BY_ID, type BodyDef } from './bodies'
+import { BODIES, type BodyDef } from './bodies'
 import type { FrameKind } from '../scene/CameraRig'
 
 // One lookup for "the thing the camera is focused on". Today every target is a
@@ -42,17 +42,26 @@ export function kindOf(def: BodyDef): FrameKind {
 // A Map, not a plain object: ids come straight from the URL (?obj=), and a
 // plain-object lookup would accept inherited keys like 'constructor'.
 const DEFS = new Map<string, TargetDef>()
-for (const body of Object.values(BODY_BY_ID)) {
-  DEFS.set(body.id, {
-    id: body.id,
-    name: body.name,
-    kind: 'body',
-    facts: body.facts,
-    frameKind: kindOf(body),
-    trueScaleOnly: body.type === 'moon',
-    body,
-  })
+
+/**
+ * Make `bodies` the camera targets: the bodies of the star system you are in.
+ * Travelling to another system swaps the whole set (only one system is loaded).
+ */
+export function setTargetBodies(bodies: readonly BodyDef[]): void {
+  DEFS.clear()
+  for (const body of bodies) {
+    DEFS.set(body.id, {
+      id: body.id,
+      name: body.name,
+      kind: 'body',
+      facts: body.facts,
+      frameKind: kindOf(body),
+      trueScaleOnly: body.type === 'moon',
+      body,
+    })
+  }
 }
+setTargetBodies(BODIES)
 
 /** True for any id the camera can be sent to. */
 export function isTarget(id: string): boolean {

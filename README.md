@@ -30,6 +30,16 @@ A fresh visit opens on the whole system, then glides in to Earth. From there:
 - **Move through time.** The time bar plays, pauses, and speeds up from
   real time to a year per second. The slider scrubs ±100 years and *Now*
   returns to the present.
+- **Visit other star systems.** The sky guide (*Show → Sky guide*, or `G`)
+  marks nearby star systems with their distance: Proxima and Alpha Centauri,
+  Barnard's Star, Sirius, Epsilon Eridani and TRAPPIST-1. They're drawn as
+  filled teal dots; click one, or pick it under *Travel to another star system*
+  in the menu, to fly into it and explore its planets. Landmarks you can only
+  look at (the Andromeda and Triangulum galaxies, the Magellanic Clouds, the
+  galactic centre, the Orion Nebula, the Pleiades, Betelgeuse, Polaris, Vega)
+  are hollow, dashed grey marks; clicking one shows what it is and how long its
+  light has been travelling. Distances are recomputed from whichever system you
+  are in, so from TRAPPIST-1 the Sun is a 40.7 ly star you can return to.
 - **Share a view.** *Share* copies a link to the body, exact moment and scale
   mode you're looking at, for example
   [Saturn on 1 October 2017](https://firstprateek.github.io/orrery/?obj=saturn&date=2017-10-01T00:00:00.000Z),
@@ -81,6 +91,13 @@ A fresh visit opens on the whole system, then glides in to Earth. From there:
   Milky Way map rotated from galactic coordinates into the same frame, so the
   bulge sits in Sagittarius and the painted stars line up. What changes between viewpoints is the Sun's direction and size
   and where the other bodies are.
+- **Other star systems.** Each one is its own module, fetched when you travel
+  there, and only one system is ever loaded: leaving one disposes its meshes
+  and textures before the next is built. Their planets move on Kepler orbits
+  with measured periods, distances and sizes (sizes of planets that don't
+  transit are estimated from their mass). How the orbits are tilted in space
+  and where each planet is today are mostly unknown, so orbit orientation and
+  phase are illustrative, and the surfaces are procedural.
 - **Rendering.** [three.js](https://threejs.org) on WebGL2: HDR bloom on the
   Sun, atmosphere rims with a twilight band, Earth's city lights and moving
   clouds, Saturn's rings and planet casting shadows on each other, and an
