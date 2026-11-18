@@ -13,6 +13,9 @@ CameraControls.install({ THREE })
  */
 export const MIN_NEAR = 1e-9
 
+/** Vertical field of view, degrees (the light-speed jump widens it for a moment). */
+export const BASE_FOV = 45
+
 /** Camera up: ecliptic north, the scene's +Z. */
 export const ECLIPTIC_NORTH: Readonly<THREE.Vector3> = new THREE.Vector3(0, 0, 1)
 
@@ -29,7 +32,7 @@ export class CameraRig {
   private readonly endSpherical = new THREE.Spherical()
 
   constructor(domElement: HTMLElement, aspect: number) {
-    this.camera = new THREE.PerspectiveCamera(45, aspect, 1e-7, 1e4)
+    this.camera = new THREE.PerspectiveCamera(BASE_FOV, aspect, 1e-7, 1e4)
     // The scene is ecliptic J2000 with +Z = ecliptic north, so "up" on screen
     // is ecliptic north too: the planets' plane reads horizontal, Saturn's
     // rings and Earth's tilt look the way diagrams show them, and the orbit

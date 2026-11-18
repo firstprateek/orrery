@@ -9,7 +9,7 @@ import { makeTrueScale, makeVisualScale } from './scene/scaleMapping'
 import { createRenderer } from './scene/Renderer'
 import { createComposer, supportsHdrComposer } from './scene/Composer'
 import { QUALITY, QUALITY_ORDER, SlowFrameGuard, defaultTier, resolveTier, type QualityTier } from './scene/quality'
-import { CameraRig } from './scene/CameraRig'
+import { BASE_FOV, CameraRig } from './scene/CameraRig'
 import { SolarSystem } from './scene/SolarSystem'
 import { ExoSystem } from './scene/ExoSystem'
 import { SkyGuide } from './scene/SkyGuide'
@@ -26,6 +26,8 @@ import { addHelpLine, helpHtml } from './ui/help'
 import { ShowMenu } from './ui/ShowMenu'
 import { isTextEntry } from './ui/keys'
 import { TimeBar } from './ui/TimeBar'
+import { WarpEffect } from './ui/Warp'
+import { prefersReducedMotion } from './ui/motion'
 import { readObjParam, readDateParam, readScaleParam, readSysParam, buildUrl, writeState } from './ui/urlState'
 
 const app = document.getElementById('app')
@@ -132,6 +134,8 @@ const requested = readObjParam()
 // True while a ?sys= link is still loading its system: home is only a stand-in
 // then, and must not overwrite the link in the address bar.
 let urlHeldForLink = false
+// True while travelling between systems (flyTo reads it from start-up on).
+let travelling = false
 // A link into another system (?sys=) opens home first, then travels there.
 const sysParam = readSysParam()
 const linkedSystem = sysParam && isExoSystem(sysParam) ? sysParam : null
@@ -231,6 +235,7 @@ scaleBtn.style.cssText = controlCss + ';cursor:pointer;pointer-events:auto'
 scaleBtn.title = 'Toggle between true scale and a compressed overview (sizes exaggerated)'
 scaleBtn.textContent = targetBlend > 0.5 ? 'True scale' : 'Overview'
 scaleBtn.addEventListener('click', () => {
+  if (travelling) return // mid-jump: it would reframe the system being left
   cancelIntro()
   targetBlend = targetBlend > 0.5 ? 0 : 1
   scaleBtn.textContent = targetBlend > 0.5 ? 'True scale' : 'Overview'
@@ -565,12 +570,14 @@ function zoomBaseDistance(): number {
   return rig.frameDistance(targetRenderRadius(t.id, blend), t.frameKind)
 }
 function userZoom(factor: number): void {
+  if (travelling) return // keyboard and pinch zoom reach past the jump's overlay
   pendingSystemFrame = false
   cancelIntro()
   rig.zoomBy(factor)
   updateZoomPill()
 }
 function resetZoom(): void {
+  if (travelling) return
   pendingSystemFrame = false
   cancelIntro()
   void rig.controls.dollyTo(zoomBaseDistance(), true)
@@ -753,6 +760,8 @@ interface FlyOpts {
 /** Fly to a target and frame it. */
 function flyTo(id: string, opts: FlyOpts = {}): void {
   const instant = opts.instant ?? false
+  // Mid-jump the menu and [ ] keys would fly to a body of the system being left.
+  if (travelling && !instant && !opts.fromIntro) return
   if (!opts.fromIntro) cancelIntro()
   pendingSystemFrame = false
   focus.setTarget(id)
@@ -924,7 +933,9 @@ function systemFrameDistance(): number {
   // Fit the system's overview sphere (70 for ours: Pluto maps to ~59, plus
   // margin for the toolbar and time bar) in the narrower of the two FOVs;
   // portrait phones are width-limited.
-  const halfV = THREE.MathUtils.degToRad(rig.camera.fov / 2)
+  // BASE_FOV, not camera.fov: the light-speed jump widens the view while it
+  // frames the system it is arriving in.
+  const halfV = THREE.MathUtils.degToRad(BASE_FOV / 2)
   const half = Math.min(halfV, Math.atan(Math.tan(halfV) * rig.camera.aspect))
   return sys.overviewRadius / Math.sin(half)
 }
@@ -969,7 +980,6 @@ function setTravelOverlay(on: boolean, title = '', sub = '', instant = false): v
 }
 const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 
-let travelling = false
 /** Dispose the current system and make `next` (null: the Solar System) the one loaded. */
 function swapSystem(next: SystemScene | null): void {
   // Tear down the system you're leaving: labels, scene graph, GPU memory.
@@ -993,6 +1003,29 @@ interface TravelOpts {
   /** Opening from a link: no fade-out first, the overlay is already up. */
   fromUrl?: boolean
 }
+const warp = new WarpEffect()
+/** Unit direction (ecliptic) of the jump in progress, for the vanishing point. */
+let warpDir: { x: number; y: number; z: number } | null = null
+
+/** Land in the system just swapped in: a shared link's body, or the overview. */
+function arrive(focusLink: string | null, viewFrom?: { x: number; y: number; z: number }): void {
+  const focusId = focusLink && isTarget(focusLink) ? focusLink : null
+  if (focusId) {
+    // A shared link: land straight on the body, in the linked scale mode.
+    blend = targetBlend = readScaleParam() ? 1 : 0
+    flyTo(focusId, { instant: true })
+  } else {
+    // Arrive on the whole system, then glide in like the opening.
+    blend = targetBlend = 1
+    introTargetId = sys.defaultFocusId
+    introRunning = true
+    flyTo(sys.primaryId, { instant: true, fromIntro: true, dir: viewFrom })
+    void rig.controls.dollyTo(systemFrameDistance(), false)
+  }
+  scaleBtn.textContent = targetBlend > 0.5 ? 'True scale' : 'Overview'
+  layoutToolbar()
+}
+
 async function travelTo(id: string, opts: TravelOpts = {}): Promise<void> {
   if (travelling || id === sys.id) return
   if (id !== HOME_SYSTEM && !isExoSystem(id)) return
@@ -1003,33 +1036,50 @@ async function travelTo(id: string, opts: TravelOpts = {}): Promise<void> {
   const fromHere = skyFrom(sys.id).find((v) => v.entry.id === id)
   const entry = SKY_CATALOG.find((e) => e.id === id)
   const name = id === HOME_SYSTEM ? 'the Solar System' : (entry?.name ?? id)
-  setTravelOverlay(true, `Travelling to ${name}`, fromHere ? `${formatLy(fromHere.distanceLy).replace(/ ly$/, ' light-years')}` : '', opts.fromUrl)
+  const shortName = id === HOME_SYSTEM ? 'Solar System' : (entry?.name ?? id)
+  // The light-speed jump, unless this is a link opening or the OS asks for less motion.
+  const jump = !opts.fromUrl && !prefersReducedMotion() && fromHere !== undefined
+  const defP = id === HOME_SYSTEM ? Promise.resolve(null) : loadSystem(id)
+  defP.catch(() => {}) // handled below; don't report it as unhandled while the jump runs
   try {
-    const defP = id === HOME_SYSTEM ? Promise.resolve(null) : loadSystem(id)
-    const [def] = await Promise.all([defP, wait(opts.fromUrl ? 0 : 480)])
-    tornDown = true
-    swapSystem(def ? new ExoSystem(def, trueScale) : null)
-
-    const focusId = opts.focusId && isTarget(opts.focusId) ? opts.focusId : null
-    if (focusId) {
-      // A shared link: land straight on the body, in the linked scale mode.
-      blend = targetBlend = readScaleParam() ? 1 : 0
-      flyTo(focusId, { instant: true })
+    if (jump) {
+      const d = fromHere.dir
+      warpDir = d
+      const legs = warp.begin(shortName, fromHere.distanceLy)
+      // Turn to face the destination, backing off a little so the body you're
+      // leaving doesn't fill the view.
+      const D = Math.min(rig.controls.maxDistance, rig.destinationDistance * 2.5)
+      void rig.controls.setLookAt(-d.x * D, -d.y * D, -d.z * D, 0, 0, 0, true)
+      rig.controls.normalizeRotations()
+      const [def] = await Promise.all([defP, legs.atSwap])
+      tornDown = true
+      swapSystem(def ? new ExoSystem(def, trueScale) : null)
+      // Arrive looking the way you flew, the new star dead ahead, and close in
+      // on it as the streaks slow down.
+      arrive(null, { x: -d.x, y: -d.y, z: -d.z })
+      void rig.controls.dollyTo(systemFrameDistance() * 4, false)
+      void rig.controls.dollyTo(systemFrameDistance(), true)
+      tick(0)
+      warp.release()
+      await legs.done
+      warpDir = null
+      // Unless you took the camera over (pinch, ⌘ +/−) as it slowed down.
+      if (introRunning) startIntroTimer(900)
     } else {
-      // Arrive on the whole system, then glide in like the opening.
-      blend = targetBlend = 1
-      introTargetId = sys.defaultFocusId
-      introRunning = true
-      flyTo(sys.primaryId, { instant: true, fromIntro: true })
-      void rig.controls.dollyTo(systemFrameDistance(), false)
-      startIntroTimer(1600)
+      setTravelOverlay(true, `Travelling to ${name}`, fromHere ? `${formatLy(fromHere.distanceLy).replace(/ ly$/, ' light-years')}` : '', opts.fromUrl)
+      const [def] = await Promise.all([defP, wait(opts.fromUrl ? 0 : 480)])
+      tornDown = true
+      swapSystem(def ? new ExoSystem(def, trueScale) : null)
+      arrive(opts.focusId ?? null)
+      if (introRunning) startIntroTimer(1600)
+      tick(0) // place the new system before the overlay lifts
     }
-    scaleBtn.textContent = targetBlend > 0.5 ? 'True scale' : 'Overview'
-    layoutToolbar()
-    tick(0) // place the new system before the overlay lifts
   } catch (err) {
     console.warn('could not load star system', id, err)
-    setTravelOverlay(true, `Couldn't reach ${name}`, 'Check your connection and try again.')
+    warp.cancel()
+    warpDir = null
+    // Instant: the jump's canvas is gone, and a fade would flash the half-turned scene.
+    setTravelOverlay(true, `Couldn't reach ${name}`, 'Check your connection and try again.', true)
     // Failed after the old system was gone: go home rather than leave an empty scene.
     if (tornDown && sys.id !== HOME_SYSTEM) {
       try {
@@ -1042,6 +1092,8 @@ async function travelTo(id: string, opts: TravelOpts = {}): Promise<void> {
     }
     await wait(1600)
   } finally {
+    rig.camera.fov = BASE_FOV
+    rig.camera.updateProjectionMatrix()
     setTravelOverlay(false)
     travelling = false
     urlHeldForLink = false
@@ -1073,6 +1125,7 @@ if (linkedSystem) {
 }
 
 // --- loop ---
+const _warpV = new THREE.Vector3()
 const timer = new THREE.Timer()
 let frame = 0
 
@@ -1158,12 +1211,33 @@ function tick(dtOverride?: number): void {
 
   rig.update(dt)
 
+  // The light-speed jump: streaks from where the destination is on screen,
+  // and a wider view at speed.
+  let travelFx = 0
+  if (warp.active) {
+    let vp: { x: number; y: number } | null = null
+    if (warpDir) {
+      const cp = rig.camera.position
+      _warpV.set(cp.x + warpDir.x * 1000, cp.y + warpDir.y * 1000, cp.z + warpDir.z * 1000).project(rig.camera)
+      if (_warpV.z < 1 && Math.abs(_warpV.x) < 1.5 && Math.abs(_warpV.y) < 1.5) {
+        vp = { x: (_warpV.x * 0.5 + 0.5) * window.innerWidth, y: (-_warpV.y * 0.5 + 0.5) * window.innerHeight }
+      }
+    }
+    const w = warp.update(dt, vp)
+    travelFx = w.speed
+    const fov = BASE_FOV + w.fovKick
+    if (rig.camera.fov !== fov) {
+      rig.camera.fov = fov
+      rig.camera.updateProjectionMatrix()
+    }
+  }
+
   // Zooming far out at true scale used to show nothing (every body sub-pixel in
   // an empty starfield) — past ~6 render units (~6 AU of orbit distance) the
   // user clearly wants the system view, so engage the overview automatically.
   // Wait for the blend to settle: mid-way back from the overview the camera is
   // still far out, which would otherwise flip straight back to the overview.
-  if (targetBlend === 0 && blend === 0 && !focus.flying && rig.distance > 6) {
+  if (targetBlend === 0 && blend === 0 && !focus.flying && !travelling && rig.distance > 6) {
     targetBlend = 1
     scaleBtn.textContent = 'True scale'
     syncUrl()
@@ -1185,7 +1259,7 @@ function tick(dtOverride?: number): void {
   f.targetBlend = targetBlend
   f.rigDistance = rig.distance
   f.introRunning = introRunning
-  f.travelFx = 0
+  f.travelFx = travelFx
   f.narrow = narrow.matches
   f.quality = quality
   f.labels = placedLabels // from the last label update (every other frame)

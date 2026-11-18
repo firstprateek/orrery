@@ -267,7 +267,8 @@ export class SkyGuide implements SceneLayer {
 
   update(f: FrameState): void {
     if (!this.on) return
-    const hide = f.introRunning
+    // Hidden during the opening glide and while jumping between systems.
+    const hide = f.introRunning || f.travelFx > 0
     this.container.style.opacity = hide ? '0' : '1'
     if (hide) return
     // Every other frame, like the body labels.
