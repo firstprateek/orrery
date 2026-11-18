@@ -8,6 +8,11 @@
     <style>
       html, body { margin: 0; height: 100%; background: #000; overflow: hidden; overscroll-behavior: none; }
       #app { position: fixed; inset: 0; }
+      /* A 3D view, not a document: a stray double-click or ⌘A would select the
+         page, and pressing on a selection (or a label) then starts the browser's
+         own drag of a snapshot instead of turning the camera. */
+      body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+      canvas, img { -webkit-user-drag: none; }
     </style>
   </head>
   <body>

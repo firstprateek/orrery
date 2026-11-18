@@ -43,6 +43,11 @@ try {
   throw err
 }
 renderer.domElement.style.cursor = 'grab'
+// Belt and braces for the CSS in index.html (user-select: none): never let the
+// browser start a native drag (a snapshot of the canvas, a label or a
+// selection), which would swallow the pointer moves the camera needs.
+document.addEventListener('dragstart', (e) => e.preventDefault())
+renderer.domElement.draggable = false
 app.appendChild(renderer.domElement)
 
 // GPU diagnostics — used to warn on (and auto-downgrade for) software rendering.
