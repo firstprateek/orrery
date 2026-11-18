@@ -1,8 +1,9 @@
 import * as THREE from 'three'
-import { BODIES, BODY_BY_ID } from './config/bodies'
-import { bindTargetRadii, isTarget, targetDef, targetRenderRadius } from './config/targets'
+import type { BodyDef } from './config/bodies'
+import { bindTargetRadii, isTarget, setTargetBodies, targetDef, targetRenderRadius } from './config/targets'
+import { HOME_SYSTEM, SKY_CATALOG, formatLy, skyFrom } from './config/starCatalog'
+import { isExoSystem, loadSystem } from './config/systems'
 import { AU_KM, jdToDate, unixMsToJd } from './config/constants'
-import { computePositions } from './sim/ephemeris'
 import { SimClock } from './sim/time'
 import { makeTrueScale, makeVisualScale } from './scene/scaleMapping'
 import { createRenderer } from './scene/Renderer'
@@ -10,6 +11,9 @@ import { createComposer, supportsHdrComposer } from './scene/Composer'
 import { QUALITY, QUALITY_ORDER, SlowFrameGuard, defaultTier, resolveTier, type QualityTier } from './scene/quality'
 import { CameraRig } from './scene/CameraRig'
 import { SolarSystem } from './scene/SolarSystem'
+import { ExoSystem } from './scene/ExoSystem'
+import { SkyGuide } from './scene/SkyGuide'
+import type { SystemScene } from './scene/SystemScene'
 import { createSky } from './scene/Sky'
 import { createStarField } from './scene/StarField'
 import { FocusController } from './scene/FocusController'
@@ -18,11 +22,11 @@ import type { FrameState, PickTarget, SceneLayer } from './scene/FrameState'
 import { smoothDamp } from './math/smoothDamp'
 import { DEFAULT_SIDE, arrivalDirFrom } from './math/arrivalDir'
 import { Labels, type PlacedLabel } from './ui/Labels'
-import { helpHtml } from './ui/help'
+import { addHelpLine, helpHtml } from './ui/help'
 import { ShowMenu } from './ui/ShowMenu'
 import { isTextEntry } from './ui/keys'
 import { TimeBar } from './ui/TimeBar'
-import { readObjParam, readDateParam, readScaleParam, buildUrl, writeState } from './ui/urlState'
+import { readObjParam, readDateParam, readScaleParam, readSysParam, buildUrl, writeState } from './ui/urlState'
 
 const app = document.getElementById('app')
 if (!app) throw new Error('#app container not found')
@@ -74,10 +78,12 @@ const trueScale = makeTrueScale()
 const visualScale = makeVisualScale()
 const loader = new THREE.TextureLoader()
 
-const solar = new SolarSystem(loader, trueScale, visualScale, renderer.capabilities.getMaxAnisotropy())
-scene.add(solar.group)
-solar.belt.count = quality.beltCount
-bindTargetRadii(solar)
+// The star system you are in. Exactly one is loaded at a time: travelling
+// disposes this one (meshes, textures) before the next is built.
+let sys: SystemScene = new SolarSystem(loader, trueScale, visualScale, renderer.capabilities.getMaxAnisotropy())
+scene.add(sys.group)
+sys.setBeltCount(quality.beltCount)
+bindTargetRadii({ renderRadius: (def, b) => sys.renderRadius(def, b) })
 const sky = createSky(loader)
 scene.add(sky)
 
@@ -93,7 +99,7 @@ createStarField(import.meta.env.BASE_URL, renderer.getPixelRatio())
   .catch((err) => console.warn('star field unavailable:', err))
 
 let composer = quality.post && hdrOk ? createComposer(renderer, scene, rig.camera, quality) : null
-solar.setSunBoost(composer !== null)
+sys.setSunBoost(composer !== null)
 
 function draw(): void {
   if (composer) composer.render()
@@ -115,10 +121,19 @@ if (dateParam && /^\d{4}-\d{2}-\d{2}(T[\d:.]+Z?)?$/.test(dateParam)) {
 }
 clock.playing = !dateLinked
 
-let positions = computePositions(clock.jd)
+let positions = sys.computePositions(clock.jd)
 
 const requested = readObjParam()
-const startId = requested && isTarget(requested) ? requested : 'earth'
+// True while a ?sys= link is still loading its system: home is only a stand-in
+// then, and must not overwrite the link in the address bar.
+let urlHeldForLink = false
+// A link into another system (?sys=) opens home first, then travels there.
+const sysParam = readSysParam()
+const linkedSystem = sysParam && isExoSystem(sysParam) ? sysParam : null
+urlHeldForLink = linkedSystem !== null
+const startId = requested && isTarget(requested) ? requested : sys.defaultFocusId
+// Where the opening glide (and the glide after arriving in a system) ends.
+let introTargetId = startId
 const focus = new FocusController(startId, positions)
 
 // --- scale blend (0 = realistic/true, 1 = visual/poster) ---
@@ -146,15 +161,19 @@ const selectEl = document.createElement('select')
 selectEl.setAttribute('aria-label', 'Fly to a body')
 selectEl.title = 'Fly to a planet or moon'
 selectEl.style.cssText = controlCss + ';pointer-events:auto'
-// Group moons under their parent so the hierarchy is legible.
-{
+// Group moons under their parent so the hierarchy is legible. A last group
+// lists the star systems you can travel to (values 'sys:<id>').
+const SYS_PREFIX = 'sys:'
+function buildBodyMenu(): void {
+  selectEl.replaceChildren()
+  const byId = new Map<string, BodyDef>(sys.bodies.map((b) => [b.id, b]))
   let groupEl: HTMLOptGroupElement | null = null
-  for (const b of BODIES) {
+  for (const b of sys.bodies) {
     const o = document.createElement('option')
     o.value = b.id
     o.textContent = b.name
     if (b.type === 'moon') {
-      const parentName = BODY_BY_ID[b.parent as string].name
+      const parentName = byId.get(b.parent as string)?.name ?? ''
       if (!groupEl || groupEl.label !== `${parentName} moons`) {
         groupEl = document.createElement('optgroup')
         groupEl.label = `${parentName} moons`
@@ -166,13 +185,25 @@ selectEl.style.cssText = controlCss + ';pointer-events:auto'
       selectEl.appendChild(o)
     }
   }
+  const travel = document.createElement('optgroup')
+  travel.label = 'Travel to another star system'
+  for (const v of skyFrom(sys.id).sort((a, b) => a.distanceLy - b.distanceLy)) {
+    if (!v.entry.reachable) continue
+    const o = document.createElement('option')
+    o.value = SYS_PREFIX + v.entry.id
+    o.textContent = `${v.entry.id === HOME_SYSTEM ? 'Solar System (home)' : v.entry.name} · ${formatLy(v.distanceLy)}`
+    travel.appendChild(o)
+  }
+  selectEl.appendChild(travel)
 }
+buildBodyMenu()
 // Previous / next body arrows around the menu: the visible way to hop between
 // planets (also [ and ] on the keyboard). Hidden on phones, where the menu
 // and tapping a planet do the job and the toolbar has no room.
 function stepBody(delta: 1 | -1): void {
-  const i = BODIES.findIndex((b) => b.id === focus.targetId)
-  flyTo(BODIES[(i + delta + BODIES.length) % BODIES.length].id)
+  const list = sys.bodies
+  const i = list.findIndex((b) => b.id === focus.targetId)
+  flyTo(list[(i + delta + list.length) % list.length].id)
 }
 const navBtn = (label: string, title: string, delta: 1 | -1) => {
   const b = document.createElement('button')
@@ -203,7 +234,7 @@ scaleBtn.addEventListener('click', () => {
   // so "Overview" looked like it did nothing. Centre on the Sun and, once the
   // blend settles, pull back far enough to see out to Neptune.
   if (targetBlend > 0.5) {
-    flyTo('sun')
+    flyTo(sys.primaryId)
     pendingSystemFrame = true
   } else {
     pendingSystemFrame = false
@@ -252,7 +283,7 @@ shareBtn.style.cssText = controlCss + ';cursor:pointer;pointer-events:auto'
 shareBtn.addEventListener('click', async () => {
   const url =
     location.origin +
-    buildUrl(location.search, location.pathname, '', focus.targetId, jdToIso(), targetBlend > 0.5)
+    buildUrl(location.search, location.pathname, '', focus.targetId, jdToIso(), targetBlend > 0.5, sysUrlId())
   try {
     await navigator.clipboard.writeText(url)
     shareBtn.textContent = 'Copied ✓'
@@ -394,8 +425,8 @@ function applyQuality(tier: QualityTier, persist = true): void {
     composer = createComposer(renderer, scene, rig.camera, quality)
     composer.setSize(window.innerWidth, window.innerHeight)
   }
-  solar.setSunBoost(composer !== null)
-  solar.belt.count = quality.beltCount
+  sys.setSunBoost(composer !== null)
+  sys.setBeltCount(quality.beltCount)
   // Star point sizes are in device pixels — keep them in sync with the new DPR.
   if (starField) {
     ;(starField.material as THREE.ShaderMaterial).uniforms.uPixelRatio.value = renderer.getPixelRatio()
@@ -626,7 +657,7 @@ rig.controls.addEventListener('controlstart', () => {
 })
 
 const labels = new Labels((id) => flyTo(id))
-labels.add(solar.labelSources())
+labels.add(sys.labelSources())
 // Body labels shown on the last label update (layers keep their own labels clear).
 let placedLabels: PlacedLabel[] = []
 
@@ -643,7 +674,7 @@ function addLayer(layer: SceneLayer): void {
 }
 /** Every click/hover target: the bodies plus whatever layers add. */
 function pickTargets(): readonly PickTarget[] {
-  let all = solar.pickTargets()
+  let all = sys.pickTargets()
   for (const l of layers) {
     const t = l.pickTargets?.()
     if (t && t.length) all = all.concat(t)
@@ -660,13 +691,26 @@ const jdToIso = () => jdToDate(clock.jd).toISOString()
 function syncUrl(): void {
   // Keep the URL bare during the opening glide: a reload mid-glide should
   // replay it, not land on a half-way ?obj=sun&scale=overview state.
-  if (introRunning) return
-  writeState(focus.targetId, clock.playing ? null : jdToIso(), targetBlend > 0.5)
+  if (introRunning || urlHeldForLink) return
+  writeState(focus.targetId, clock.playing ? null : jdToIso(), targetBlend > 0.5, sysUrlId())
+}
+/** The ?sys= value: none for home. */
+function sysUrlId(): string | null {
+  return sys.id === HOME_SYSTEM ? null : sys.id
 }
 
 function updateFact(): void {
   const t = targetDef(focus.targetId)
-  factEl.innerHTML = `<b style="font-size:15px">${t.name}</b><br>${t.facts}`
+  // Text set via textContent: names and facts are data, not markup.
+  const where = document.createElement('div')
+  where.textContent = sys.name
+  where.style.cssText = 'color:#8892b8;font-size:11px;letter-spacing:0.04em;text-transform:uppercase'
+  const name = document.createElement('b')
+  name.textContent = t.name
+  name.style.fontSize = '15px'
+  const facts = document.createElement('div')
+  facts.textContent = t.facts
+  factEl.replaceChildren(where, name, facts)
 }
 
 function updateStats(): void {
@@ -708,7 +752,7 @@ function flyTo(id: string, opts: FlyOpts = {}): void {
   pendingSystemFrame = false
   focus.setTarget(id)
   if (instant) focus.snap(positions)
-  solar.ensureFamilyTextures(id) // deferred moon maps start when their system is visited
+  sys.ensureFamilyTextures(id) // deferred moon maps start when their system is visited
   const t = targetDef(id)
   // Moons collapse onto their planet in the overview mapping — flying to one
   // there would bury the camera inside the parent. Return to true scale first.
@@ -728,7 +772,16 @@ function flyTo(id: string, opts: FlyOpts = {}): void {
   updateStats()
 }
 
-selectEl.addEventListener('change', () => flyTo(selectEl.value))
+selectEl.addEventListener('change', () => {
+  const v = selectEl.value
+  if (v.startsWith(SYS_PREFIX)) {
+    selectEl.value = focus.targetId // the menu shows where you are, not where you're going
+    selectEl.blur()
+    void travelTo(v.slice(SYS_PREFIX.length))
+  } else {
+    flyTo(v)
+  }
+})
 
 window.addEventListener('keydown', (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return
@@ -810,7 +863,7 @@ el.addEventListener('pointercancel', () => {
 el.addEventListener('pointerleave', () => {
   hoverPending = false
   hoveredId = null
-  solar.setHighlight(null)
+  sys.setHighlight(null)
   el.style.cursor = 'grab'
 })
 
@@ -854,19 +907,23 @@ function cancelIntro(): void {
 function startIntroTimer(ms: number): void {
   introTimer = window.setTimeout(() => {
     introTimer = 0
-    flyTo(startId, { side: 1.15, fromIntro: true })
+    flyTo(introTargetId, { side: 1.15, fromIntro: true })
+    // The glide may end on a star (Alpha Centauri A, Sirius B): flyTo treats a
+    // star in the overview as "frame the whole system", which would pull the
+    // camera back out mid-glide. The glide frames it itself.
+    pendingSystemFrame = false
     introToTrueScale = true
   }, ms)
 }
 function systemFrameDistance(): number {
-  // Neptune maps to ~55 and Pluto to ~59 render units in the overview. Fit a
-  // sphere of 70 (margin for the toolbar and time bar) in the narrower of the
-  // two FOVs; portrait phones are width-limited.
+  // Fit the system's overview sphere (70 for ours: Pluto maps to ~59, plus
+  // margin for the toolbar and time bar) in the narrower of the two FOVs;
+  // portrait phones are width-limited.
   const halfV = THREE.MathUtils.degToRad(rig.camera.fov / 2)
   const half = Math.min(halfV, Math.atan(Math.tan(halfV) * rig.camera.aspect))
-  return 70 / Math.sin(half)
+  return sys.overviewRadius / Math.sin(half)
 }
-const playIntro = !requested && !dateLinked && !readScaleParam()
+const playIntro = !requested && !dateLinked && !readScaleParam() && !linkedSystem
 if (playIntro) {
   blend = targetBlend = 1
   scaleBtn.textContent = 'True scale'
@@ -877,6 +934,137 @@ if (playIntro) {
 } else {
   flyTo(startId, { instant: true })
   showHint()
+}
+
+// --- star systems: the sky guide and travel ---
+// The sky guide marks the systems you can travel to (and landmarks you can't)
+// with their distances from wherever you are. Travelling swaps the one loaded
+// system: the next is fetched first (so a failed load leaves you where you
+// were), then the old one is disposed and the new one built, behind a fade.
+const travelOverlay = document.createElement('div')
+travelOverlay.setAttribute('aria-live', 'polite')
+travelOverlay.style.cssText =
+  'position:fixed;inset:0;z-index:28;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;' +
+  'background:#03040a;color:#cdd6ff;font:15px/1.5 system-ui;text-align:center;padding:24px;' +
+  'opacity:0;pointer-events:none;transition:opacity 0.45s ease'
+document.body.appendChild(travelOverlay)
+function setTravelOverlay(on: boolean, title = '', sub = '', instant = false): void {
+  if (on) {
+    const t = document.createElement('div')
+    t.textContent = title
+    t.style.cssText = 'font-size:20px;font-weight:600;color:#9ff7e8'
+    const d = document.createElement('div')
+    d.textContent = sub
+    d.style.color = '#8892b8'
+    travelOverlay.replaceChildren(t, d)
+  }
+  travelOverlay.style.transition = instant ? 'none' : 'opacity 0.45s ease'
+  travelOverlay.style.opacity = on ? '1' : '0'
+  travelOverlay.style.pointerEvents = on ? 'auto' : 'none'
+}
+const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
+
+let travelling = false
+/** Dispose the current system and make `next` (null: the Solar System) the one loaded. */
+function swapSystem(next: SystemScene | null): void {
+  // Tear down the system you're leaving: labels, scene graph, GPU memory.
+  labels.remove(new Set(sys.bodies.map((b) => b.id)))
+  scene.remove(sys.group)
+  sys.dispose()
+  hoveredId = null
+  sys = next ?? new SolarSystem(loader, trueScale, visualScale, renderer.capabilities.getMaxAnisotropy())
+  scene.add(sys.group)
+  sys.setBeltCount(quality.beltCount)
+  sys.setSunBoost(composer !== null)
+  setTargetBodies(sys.bodies)
+  labels.add(sys.labelSources())
+  buildBodyMenu()
+  skyGuide.setOrigin(sys.id)
+  positions = sys.computePositions(clock.jd, {})
+}
+interface TravelOpts {
+  /** Body to land on (a shared link); otherwise show the system, then glide in. */
+  focusId?: string | null
+  /** Opening from a link: no fade-out first, the overlay is already up. */
+  fromUrl?: boolean
+}
+async function travelTo(id: string, opts: TravelOpts = {}): Promise<void> {
+  if (travelling || id === sys.id) return
+  if (id !== HOME_SYSTEM && !isExoSystem(id)) return
+  travelling = true
+  let tornDown = false
+  cancelIntro()
+  skyGuide.closeCard()
+  const fromHere = skyFrom(sys.id).find((v) => v.entry.id === id)
+  const entry = SKY_CATALOG.find((e) => e.id === id)
+  const name = id === HOME_SYSTEM ? 'the Solar System' : (entry?.name ?? id)
+  setTravelOverlay(true, `Travelling to ${name}`, fromHere ? `${formatLy(fromHere.distanceLy).replace(/ ly$/, ' light-years')}` : '', opts.fromUrl)
+  try {
+    const defP = id === HOME_SYSTEM ? Promise.resolve(null) : loadSystem(id)
+    const [def] = await Promise.all([defP, wait(opts.fromUrl ? 0 : 480)])
+    tornDown = true
+    swapSystem(def ? new ExoSystem(def, trueScale) : null)
+
+    const focusId = opts.focusId && isTarget(opts.focusId) ? opts.focusId : null
+    if (focusId) {
+      // A shared link: land straight on the body, in the linked scale mode.
+      blend = targetBlend = readScaleParam() ? 1 : 0
+      flyTo(focusId, { instant: true })
+    } else {
+      // Arrive on the whole system, then glide in like the opening.
+      blend = targetBlend = 1
+      introTargetId = sys.defaultFocusId
+      introRunning = true
+      flyTo(sys.primaryId, { instant: true, fromIntro: true })
+      void rig.controls.dollyTo(systemFrameDistance(), false)
+      startIntroTimer(1600)
+    }
+    scaleBtn.textContent = targetBlend > 0.5 ? 'True scale' : 'Overview'
+    layoutToolbar()
+    tick(0) // place the new system before the overlay lifts
+  } catch (err) {
+    console.warn('could not load star system', id, err)
+    setTravelOverlay(true, `Couldn't reach ${name}`, 'Check your connection and try again.')
+    // Failed after the old system was gone: go home rather than leave an empty scene.
+    if (tornDown && sys.id !== HOME_SYSTEM) {
+      try {
+        swapSystem(null)
+        blend = targetBlend = 0
+        flyTo(sys.defaultFocusId, { instant: true })
+      } catch (e2) {
+        console.error('could not rebuild the Solar System', e2)
+      }
+    }
+    await wait(1600)
+  } finally {
+    setTravelOverlay(false)
+    travelling = false
+    urlHeldForLink = false
+    // Not syncUrl(): it waits out the arrival glide, but a reload mid-glide
+    // must still land in this system.
+    writeState(introRunning ? introTargetId : focus.targetId, clock.playing ? null : jdToIso(), targetBlend > 0.5 && !introRunning, sysUrlId())
+  }
+}
+
+const skyGuide = new SkyGuide({ onTravel: (id) => void travelTo(id), occluders: () => sys.pickTargets() })
+skyGuide.setOrigin(sys.id)
+addLayer(skyGuide)
+showMenu.register('Sky guide', 'sky-guide', () => skyGuide.visible, (on) => skyGuide.setVisible(on), {
+  shortcut: 'g',
+  title: 'Mark nearby star systems you can travel to, and galaxies and nebulae you can only look at',
+})
+addHelpLine(
+  {
+    id: 'sky-guide',
+    html:
+      '<span style="color:#5eead4">●</span> Teal marks — star systems you can travel to; ' +
+      '<span style="color:#8d93ab">◌</span> dashed grey — too far to visit (<code>G</code> toggles)',
+  },
+  'fly',
+)
+if (linkedSystem) {
+  setTravelOverlay(true, '', '', true)
+  void travelTo(linkedSystem, { focusId: requested, fromUrl: true })
 }
 
 // --- loop ---
@@ -913,7 +1101,7 @@ function tick(dtOverride?: number): void {
   if (dt > 0.1) dt = 0.1 // clamp tab-switch gaps so the clock/springs/stats don't lurch
 
   clock.advance(dt)
-  positions = computePositions(clock.jd, positions)
+  positions = sys.computePositions(clock.jd, positions)
   const focusAu = focus.update(positions, dt)
 
   blend = smoothDamp(blend, targetBlend, blendVel, 0.5, dt)
@@ -922,8 +1110,8 @@ function tick(dtOverride?: number): void {
     blendVel.value = 0
   }
 
-  solar.place(positions, focusAu, blend)
-  solar.rotate(clock.jd, positions)
+  sys.place(positions, focusAu, blend)
+  sys.rotate(clock.jd, positions)
 
   // Keep the focused body framed as its render radius changes during a scale blend.
   const fr = targetRenderRadius(focus.targetId, blend)
@@ -940,7 +1128,7 @@ function tick(dtOverride?: number): void {
     const id = pickBody(hoverNdc, rig.camera, pickTargets(), window.innerHeight)
     if (id !== hoveredId) {
       hoveredId = id
-      solar.setHighlight(id)
+      sys.setHighlight(id)
       el.style.cursor = id ? 'pointer' : 'grab'
     }
     hoverPending = false
@@ -1005,7 +1193,7 @@ function tick(dtOverride?: number): void {
   // Asteroid-belt rocks are drawn far larger than real asteroids so they show
   // up from afar; in a planet close-up they read as debris right beside it.
   // Fade them in only once the camera is pulled back (true scale: units = AU).
-  solar.setBeltFade(THREE.MathUtils.smoothstep(rig.distance, 0.05, 0.5))
+  sys.setBeltFade(THREE.MathUtils.smoothstep(rig.distance, 0.05, 0.5))
 
   // First visit only: if the default tier can't hold ~25fps over the first
   // seconds, quietly drop to Low (not persisted, so a faster session retries).
@@ -1038,7 +1226,11 @@ renderer.setAnimationLoop(loop)
 if (import.meta.env.DEV) {
   ;(window as unknown as { __orrery: unknown }).__orrery = {
     rig,
-    solar,
+    get sys() {
+      return sys
+    },
+    travelTo,
+    skyGuide,
     focus,
     clock,
     renderer,
@@ -1087,10 +1279,10 @@ if (import.meta.env.DEV) {
         const c = composer
         r.push(measure('bloom-off', () => (c.bloom.enabled = false), () => (c.bloom.enabled = true)))
       }
-      r.push(measure('belt-off', () => (solar.belt.visible = false), () => (solar.belt.visible = true)))
+      r.push(measure('belt-off', () => sys.setBeltVisible(false), () => sys.setBeltVisible(true)))
       r.push(measure('sky-off', () => (sky.visible = false), () => (sky.visible = true)))
       if (stars) r.push(measure('stars-off', () => (stars.visible = false), () => (stars.visible = true)))
-      r.push(measure('bodies-off', () => (solar.group.visible = false), () => (solar.group.visible = true)))
+      r.push(measure('bodies-off', () => (sys.group.visible = false), () => (sys.group.visible = true)))
       return {
         gpu: gpuName,
         post: !!composer,

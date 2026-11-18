@@ -30,4 +30,9 @@ describe('buildUrl', () => {
     // leaving overview removes a stale flag
     expect(buildUrl('?obj=sun&scale=overview', '/', '', 'sun', null, false)).not.toContain('scale=')
   })
+
+  it('adds ?sys= for another star system and drops it for home', () => {
+    expect(buildUrl('', '/orrery/', '', 'proxima-b', null, false, 'proxima')).toBe('/orrery/?sys=proxima&obj=proxima-b')
+    expect(buildUrl('?sys=proxima&obj=proxima-b', '/orrery/', '', 'earth', null, false, null)).toBe('/orrery/?obj=earth')
+  })
 })

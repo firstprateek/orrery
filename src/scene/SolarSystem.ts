@@ -11,12 +11,16 @@ import { MAX_BELT } from './quality'
 import { ATMOSPHERES, createAtmosphere } from './Atmosphere'
 import { createEarthMaterial, createClouds } from './EarthMaterial'
 import type { ScaleMapping } from './scaleMapping'
+import type { SystemScene } from './SystemScene'
+import { disposeObject } from './dispose'
+import { computePositions } from '../sim/ephemeris'
 import type { Vec3 } from '../math/vec3'
 import type { LabelSource, PickTarget } from './FrameState'
 
 // One sphere geometry shared by every body (scaled per-body) keeps the draw-call
 // budget tiny. Spin axis is local +Y; each body's group carries its IAU pole.
 const SHARED_SPHERE = new THREE.SphereGeometry(1, 64, 32)
+SHARED_SPHERE.userData.shared = true // outlives a SolarSystem: dispose.ts skips it
 const TEXTURE_BASE = `${import.meta.env.BASE_URL}textures/`
 
 // Clouds turn once per 1.08 Earth days, i.e. they fall behind the surface by one
@@ -59,7 +63,15 @@ export interface BodyView {
   }
 }
 
-export class SolarSystem {
+export class SolarSystem implements SystemScene {
+  readonly id = 'sol'
+  readonly name = 'Solar System'
+  readonly bodies: readonly BodyDef[] = BODIES
+  readonly primaryId = 'sun'
+  readonly defaultFocusId = 'earth'
+  // Neptune maps to ~55 and Pluto to ~59 render units in the overview; 70
+  // leaves margin for the toolbar and time bar.
+  readonly overviewRadius = 70
   readonly group = new THREE.Group()
   readonly views: BodyView[] = []
   readonly byId: Record<string, BodyView> = {}
@@ -140,6 +152,26 @@ export class SolarSystem {
         return view.group.visible
       },
     }))
+  }
+
+  computePositions(jd: number, out?: Record<string, Vec3>): Record<string, Vec3> {
+    return computePositions(jd, out)
+  }
+
+  setBeltCount(n: number): void {
+    this.belt.count = n
+  }
+
+  setBeltVisible(on: boolean): void {
+    this.belt.visible = on
+  }
+
+  /** Free every GPU resource (travel to another system). Unusable afterwards. */
+  dispose(): void {
+    this.deferredTextures.clear()
+    disposeObject(this.group)
+    this.belt.dispose()
+    this.group.clear()
   }
 
   /** Every body as a click/hover target (render-space spheres). */

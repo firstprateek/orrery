@@ -1,10 +1,15 @@
-// Deep-linking: ?obj=<id>&date=<ISO8601>&scale=overview. Reading is used on
+// Deep-linking: ?sys=<system>&obj=<id>&date=<ISO8601>&scale=overview (sys is
+// left out for the Solar System). Reading is used on
 // load to restore the shared view; writing is debounced and uses replaceState
 // so it never pollutes the back-stack. The date is only written when the clock
 // is paused (a live-playing date would rewrite the URL every tick).
 
 export function readObjParam(): string | null {
   return new URLSearchParams(location.search).get('obj')
+}
+
+export function readSysParam(): string | null {
+  return new URLSearchParams(location.search).get('sys')
 }
 
 export function readDateParam(): string | null {
@@ -23,8 +28,11 @@ export function buildUrl(
   obj: string,
   dateIso: string | null,
   overview = false,
+  sys: string | null = null,
 ): string {
   const params = new URLSearchParams(search)
+  if (sys) params.set('sys', sys)
+  else params.delete('sys')
   params.set('obj', obj)
   if (dateIso) params.set('date', dateIso)
   else params.delete('date')
@@ -34,9 +42,9 @@ export function buildUrl(
 }
 
 let pending = 0
-export function writeState(obj: string, dateIso: string | null, overview = false): void {
+export function writeState(obj: string, dateIso: string | null, overview = false, sys: string | null = null): void {
   clearTimeout(pending)
   pending = window.setTimeout(() => {
-    history.replaceState(null, '', buildUrl(location.search, location.pathname, location.hash, obj, dateIso, overview))
+    history.replaceState(null, '', buildUrl(location.search, location.pathname, location.hash, obj, dateIso, overview, sys))
   }, 400)
 }

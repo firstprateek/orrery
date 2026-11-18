@@ -107,6 +107,16 @@ export class Labels {
     }
   }
 
+  /** Drop the labels with these ids (the bodies of a system you left). */
+  remove(ids: ReadonlySet<string>): void {
+    for (let i = this.entries.length - 1; i >= 0; i--) {
+      const e = this.entries[i]
+      if (!ids.has(e.src.id)) continue
+      e.el.remove()
+      this.entries.splice(i, 1)
+    }
+  }
+
   update(
     camera: THREE.PerspectiveCamera,
     w: number,
